@@ -3,9 +3,12 @@
 # =================================================================
 # Rodar isso UMA VEZ numa maquina nova (secretaria ou CRAS). Ele:
 #   1. Baixa a extensao do GitHub pra uma pasta fixa do usuario.
-#   2. Registra uma Tarefa Agendada que roda o atualizador sozinho
-#      de tempos em tempos, sem precisar de ninguem mexer em nada
-#      depois disso.
+#   2. Poe um atalho na pasta "Inicializar" do usuario que, a cada
+#      login, sobe um loop escondido checando atualizacao sozinho.
+#      NAO usa Agendador de Tarefas de proposito: muita maquina de
+#      orgao publico bloqueia usuario comum de registrar tarefa
+#      agendada via GPO (visto na pratica), mas escrever na propria
+#      pasta de Inicializar nunca exige permissao especial.
 #
 # Depois de rodar, falta so 1 passo manual e inevitavel (o Chrome
 # exige interacao humana pra isso, nao da pra automatizar):
@@ -52,42 +55,24 @@ try {
     Remove-Item -Path $pastaTemp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# --- 2. Registra a Tarefa Agendada que mantem isso atualizado sozinho ---
-# Usa splatting (@hash) em vez de continuacao de linha com backtick: mais
-# robusto contra CRLF/LF e evita ambiguidade de binding com os cmdlets de
-# ScheduledTask (que sao CIM, sensiveis a como os parametros chegam).
-$nomeTarefa = "SGBSTR - Atualizar Extensao CadUnico"
-$scriptAtualizador = Join-Path $Destino "atualizar-extensao.ps1"
+# --- 2. Poe um atalho na pasta Inicializar (sem precisar de admin) ---
+$scriptLoop = Join-Path $Destino "manter-atualizado.ps1"
+$pastaInicializar = [Environment]::GetFolderPath('Startup')
+$atalhoPath = Join-Path $pastaInicializar "SGBSTR - Atualizar Extensao CadUnico.lnk"
+$argumentosLoop = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptLoop`" -Destino `"$Destino`" -IntervaloMinutos $IntervaloMinutos"
 
-$acaoParams = @{
-    Execute  = "powershell.exe"
-    Argument = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptAtualizador`""
-}
-$acao = New-ScheduledTaskAction @acaoParams
+$wshShell = New-Object -ComObject WScript.Shell
+$atalho = $wshShell.CreateShortcut($atalhoPath)
+$atalho.TargetPath = "powershell.exe"
+$atalho.Arguments = $argumentosLoop
+$atalho.WorkingDirectory = $Destino
+$atalho.Description = "Mantem a extensao CadunicoSLZ atualizada sozinha (sem Agendador de Tarefas)"
+$atalho.Save()
 
-$agora = Get-Date
-$triggerParams = @{
-    Once               = $true
-    At                 = $agora
-    RepetitionInterval = New-TimeSpan -Minutes $IntervaloMinutos
-    RepetitionDuration = New-TimeSpan -Days 3650
-}
-$triggerPeriodico = New-ScheduledTaskTrigger @triggerParams
-$triggerLogon = New-ScheduledTaskTrigger -AtLogOn
+# Inicia o loop agora tambem, sem esperar o proximo login.
+Start-Process -FilePath "powershell.exe" -ArgumentList $argumentosLoop -WindowStyle Hidden
 
-$configuracoes = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-
-$tarefaParams = @{
-    TaskName    = $nomeTarefa
-    Action      = $acao
-    Trigger     = @($triggerPeriodico, $triggerLogon)
-    Settings    = $configuracoes
-    Description = "Baixa sozinho a versao mais recente da extensao CadunicoSLZ do GitHub a cada $IntervaloMinutos min."
-    Force       = $true
-}
-Register-ScheduledTask @tarefaParams | Out-Null
-
-Write-Output "Tarefa Agendada '$nomeTarefa' registrada (roda a cada $IntervaloMinutos min e a cada logon)."
+Write-Output "Atalho de auto-atualizacao criado em: $atalhoPath"
 Write-Output ""
 Write-Output "=================================================================="
 Write-Output " A mesma pasta atualizada sozinha serve pro Chrome E pro Edge (os"
@@ -109,5 +94,5 @@ Write-Output "   3. Clique 'Carregar sem compactacao' e selecione a MESMA pasta:
 Write-Output "      $Destino"
 Write-Output ""
 Write-Output " Depois disso cada navegador se atualiza sozinho (auto-reload via"
-Write-Output " background.js) sempre que a Tarefa Agendada baixar versao nova."
+Write-Output " background.js) sempre que o loop em segundo plano baixar versao nova."
 Write-Output "=================================================================="
