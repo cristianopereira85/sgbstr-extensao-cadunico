@@ -20,6 +20,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Forca TLS 1.2: em maquina mais antiga/travada o .NET do PowerShell 5.1
+# as vezes negocia um protocolo que o GitHub rejeita ("A conexao
+# subjacente estava fechada"). Sem isso o download falha silenciosamente
+# de forma diferente em cada maquina.
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
 $pastaTemp = Join-Path $env:TEMP "sgbstr-update-$(Get-Random)"
 $zipPath = Join-Path $pastaTemp "extensao.zip"
 

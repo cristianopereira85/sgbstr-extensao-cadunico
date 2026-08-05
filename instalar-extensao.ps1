@@ -36,6 +36,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Forca TLS 1.2 (ver mesmo comentario em atualizar-extensao.ps1) - sem
+# isso, em maquina mais antiga, o download quebra com "A conexao
+# subjacente estava fechada".
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
 # --- 1. Baixa a extensao (mesma logica do atualizar-extensao.ps1) ---
 $pastaTemp = Join-Path $env:TEMP "sgbstr-install-$(Get-Random)"
 $zipPath = Join-Path $pastaTemp "extensao.zip"
