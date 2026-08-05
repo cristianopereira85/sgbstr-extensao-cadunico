@@ -53,25 +53,38 @@ try {
 }
 
 # --- 2. Registra a Tarefa Agendada que mantem isso atualizado sozinho ---
+# Usa splatting (@hash) em vez de continuacao de linha com backtick: mais
+# robusto contra CRLF/LF e evita ambiguidade de binding com os cmdlets de
+# ScheduledTask (que sao CIM, sensiveis a como os parametros chegam).
 $nomeTarefa = "SGBSTR - Atualizar Extensao CadUnico"
 $scriptAtualizador = Join-Path $Destino "atualizar-extensao.ps1"
 
-$acao = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptAtualizador`""
+$acaoParams = @{
+    Execute  = "powershell.exe"
+    Argument = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptAtualizador`""
+}
+$acao = New-ScheduledTaskAction @acaoParams
 
-$triggerPeriodico = New-ScheduledTaskTrigger -Once (Get-Date) `
-    -RepetitionInterval (New-TimeSpan -Minutes $IntervaloMinutos) `
-    -RepetitionDuration (New-TimeSpan -Days 3650)
+$agora = Get-Date
+$triggerParams = @{
+    Once               = $agora
+    RepetitionInterval = New-TimeSpan -Minutes $IntervaloMinutos
+    RepetitionDuration = New-TimeSpan -Days 3650
+}
+$triggerPeriodico = New-ScheduledTaskTrigger @triggerParams
 $triggerLogon = New-ScheduledTaskTrigger -AtLogOn
 
 $configuracoes = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
-Register-ScheduledTask -TaskName $nomeTarefa `
-    -Action $acao `
-    -Trigger @($triggerPeriodico, $triggerLogon) `
-    -Settings $configuracoes `
-    -Description "Baixa sozinho a versao mais recente da extensao CadunicoSLZ do GitHub a cada $IntervaloMinutos min." `
-    -Force | Out-Null
+$tarefaParams = @{
+    TaskName    = $nomeTarefa
+    Action      = $acao
+    Trigger     = @($triggerPeriodico, $triggerLogon)
+    Settings    = $configuracoes
+    Description = "Baixa sozinho a versao mais recente da extensao CadunicoSLZ do GitHub a cada $IntervaloMinutos min."
+    Force       = $true
+}
+Register-ScheduledTask @tarefaParams | Out-Null
 
 Write-Output "Tarefa Agendada '$nomeTarefa' registrada (roda a cada $IntervaloMinutos min e a cada logon)."
 Write-Output ""
