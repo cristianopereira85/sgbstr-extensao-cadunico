@@ -14,7 +14,9 @@
 // próxima navegação/F5 real, porque é SPA. Ver "Pegadinhas" no CLAUDE.md.
 
 const NOME_ALARME = 'sgbstr-verificar-atualizacao';
-const INTERVALO_MINUTOS = 15;
+const INTERVALO_MINUTOS = 2;
+
+console.log(`LAB: background.js carregado, versão ${chrome.runtime.getManifest().version}`);
 
 chrome.runtime.onInstalled.addListener(agendarVerificacao);
 chrome.runtime.onStartup.addListener(agendarVerificacao);
