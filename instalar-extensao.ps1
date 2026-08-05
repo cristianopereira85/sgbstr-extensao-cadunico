@@ -41,6 +41,10 @@ $ErrorActionPreference = "Stop"
 # subjacente estava fechada".
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
+# Se identifica como navegador (ver mesmo comentario em atualizar-extensao.ps1)
+# - evita bloqueio de proxy/AV corporativo por User-Agent "de script".
+$userAgentNavegador = [Microsoft.PowerShell.Commands.PSUserAgent]::Chrome
+
 # --- 1. Baixa a extensao (mesma logica do atualizar-extensao.ps1) ---
 $pastaTemp = Join-Path $env:TEMP "sgbstr-install-$(Get-Random)"
 $zipPath = Join-Path $pastaTemp "extensao.zip"
@@ -49,7 +53,7 @@ try {
     New-Item -ItemType Directory -Force -Path $pastaTemp | Out-Null
 
     Write-Output "Baixando extensao de $RepoZipUrl ..."
-    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipPath -UseBasicParsing
+    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipPath -UseBasicParsing -UserAgent $userAgentNavegador
 
     Expand-Archive -Path $zipPath -DestinationPath $pastaTemp -Force
 

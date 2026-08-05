@@ -27,6 +27,11 @@ $ErrorActionPreference = "Stop"
 # de forma diferente em cada maquina.
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
+# Some proxy/AV corporativo bloqueia por User-Agent "de script" (o padrao
+# do PowerShell se identifica como WindowsPowerShell/x.x, o que e um alvo
+# comum de bloqueio automatico). Se identificar como navegador evita isso.
+$userAgentNavegador = [Microsoft.PowerShell.Commands.PSUserAgent]::Chrome
+
 $pastaTemp = Join-Path $env:TEMP "sgbstr-update-$(Get-Random)"
 $zipPath = Join-Path $pastaTemp "extensao.zip"
 
@@ -34,7 +39,7 @@ try {
     New-Item -ItemType Directory -Force -Path $pastaTemp | Out-Null
 
     Write-Output "Baixando ultima versao de $RepoZipUrl ..."
-    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipPath -UseBasicParsing
+    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipPath -UseBasicParsing -UserAgent $userAgentNavegador
 
     Expand-Archive -Path $zipPath -DestinationPath $pastaTemp -Force
 
