@@ -67,7 +67,8 @@ $acao = New-ScheduledTaskAction @acaoParams
 
 $agora = Get-Date
 $triggerParams = @{
-    Once               = $agora
+    Once               = $true
+    At                 = $agora
     RepetitionInterval = New-TimeSpan -Minutes $IntervaloMinutos
     RepetitionDuration = New-TimeSpan -Days 3650
 }
