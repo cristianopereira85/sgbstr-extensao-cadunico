@@ -3,12 +3,21 @@
 # =================================================================
 # Rodar isso UMA VEZ numa maquina nova (secretaria ou CRAS). Ele:
 #   1. Baixa a extensao do GitHub pra uma pasta fixa do usuario.
-#   2. Poe um atalho na pasta "Inicializar" do usuario que, a cada
-#      login, sobe um loop escondido checando atualizacao sozinho.
-#      NAO usa Agendador de Tarefas de proposito: muita maquina de
-#      orgao publico bloqueia usuario comum de registrar tarefa
-#      agendada via GPO (visto na pratica), mas escrever na propria
-#      pasta de Inicializar nunca exige permissao especial.
+#   2. Tenta registrar uma Tarefa Agendada (mecanismo padrao do
+#      Windows, o que AV/EDR corporativo reconhece e nao estranha)
+#      que roda o atualizador de tempos em tempos. Se der "Acesso
+#      negado" (GPO de orgao publico bloqueando usuario comum -
+#      visto na pratica numa maquina da secretaria), cai pra um
+#      atalho na pasta "Inicializar" que roda o atualizador UMA VEZ
+#      a cada login.
+#
+#      De proposito NAO usa processo escondido rodando em loop
+#      infinito: esse padrao (processo oculto + polling periodico +
+#      baixa e executa codigo da internet) e estruturalmente igual a
+#      comportamento de C2/malware de persistencia, e um antivirus
+#      (visto na pratica: Kaspersky bloqueando com "Acesso negado" no
+#      Start-Process) pode legitimamente bloquear. O atualizador em
+#      si roda uma vez e termina - nunca fica pendurado em memoria.
 #
 # Depois de rodar, falta so 1 passo manual e inevitavel (o Chrome
 # exige interacao humana pra isso, nao da pra automatizar):
@@ -55,24 +64,61 @@ try {
     Remove-Item -Path $pastaTemp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# --- 2. Poe um atalho na pasta Inicializar (sem precisar de admin) ---
-$scriptLoop = Join-Path $Destino "manter-atualizado.ps1"
-$pastaInicializar = [Environment]::GetFolderPath('Startup')
-$atalhoPath = Join-Path $pastaInicializar "SGBSTR - Atualizar Extensao CadUnico.lnk"
-$argumentosLoop = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptLoop`" -Destino `"$Destino`" -IntervaloMinutos $IntervaloMinutos"
+# --- 2. Mantem atualizado sozinho: Tarefa Agendada com fallback pra Inicializar ---
+$scriptAtualizador = Join-Path $Destino "atualizar-extensao.ps1"
+$mecanismoUsado = ""
 
-$wshShell = New-Object -ComObject WScript.Shell
-$atalho = $wshShell.CreateShortcut($atalhoPath)
-$atalho.TargetPath = "powershell.exe"
-$atalho.Arguments = $argumentosLoop
-$atalho.WorkingDirectory = $Destino
-$atalho.Description = "Mantem a extensao CadunicoSLZ atualizada sozinha (sem Agendador de Tarefas)"
-$atalho.Save()
+try {
+    $nomeTarefa = "SGBSTR - Atualizar Extensao CadUnico"
 
-# Inicia o loop agora tambem, sem esperar o proximo login.
-Start-Process -FilePath "powershell.exe" -ArgumentList $argumentosLoop -WindowStyle Hidden
+    $acaoParams = @{
+        Execute  = "powershell.exe"
+        Argument = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptAtualizador`" -Destino `"$Destino`""
+    }
+    $acao = New-ScheduledTaskAction @acaoParams
 
-Write-Output "Atalho de auto-atualizacao criado em: $atalhoPath"
+    $agora = Get-Date
+    $triggerParams = @{
+        Once               = $true
+        At                 = $agora
+        RepetitionInterval = New-TimeSpan -Minutes $IntervaloMinutos
+        RepetitionDuration = New-TimeSpan -Days 3650
+    }
+    $triggerPeriodico = New-ScheduledTaskTrigger @triggerParams
+    $triggerLogon = New-ScheduledTaskTrigger -AtLogOn
+
+    $configuracoes = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+
+    $tarefaParams = @{
+        TaskName    = $nomeTarefa
+        Action      = $acao
+        Trigger     = @($triggerPeriodico, $triggerLogon)
+        Settings    = $configuracoes
+        Description = "Baixa sozinho a versao mais recente da extensao CadunicoSLZ do GitHub a cada $IntervaloMinutos min."
+        Force       = $true
+    }
+    Register-ScheduledTask @tarefaParams | Out-Null
+
+    $mecanismoUsado = "Tarefa Agendada '$nomeTarefa' (roda a cada $IntervaloMinutos min e a cada logon)"
+} catch {
+    # Sem permissao (GPO) ou algum outro bloqueio - cai pro fallback
+    # que so precisa de escrita na pasta pessoal do usuario.
+    $pastaInicializar = [Environment]::GetFolderPath('Startup')
+    $atalhoPath = Join-Path $pastaInicializar "SGBSTR - Atualizar Extensao CadUnico.lnk"
+    $argumentos = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptAtualizador`" -Destino `"$Destino`""
+
+    $wshShell = New-Object -ComObject WScript.Shell
+    $atalho = $wshShell.CreateShortcut($atalhoPath)
+    $atalho.TargetPath = "powershell.exe"
+    $atalho.Arguments = $argumentos
+    $atalho.WorkingDirectory = $Destino
+    $atalho.Description = "Atualiza a extensao CadunicoSLZ uma vez a cada login"
+    $atalho.Save()
+
+    $mecanismoUsado = "Atalho em Inicializar (Tarefa Agendada bloqueada: $($_.Exception.Message)) - atualiza uma vez por login"
+}
+
+Write-Output "Auto-atualizacao configurada: $mecanismoUsado"
 Write-Output ""
 Write-Output "=================================================================="
 Write-Output " A mesma pasta atualizada sozinha serve pro Chrome E pro Edge (os"
@@ -94,5 +140,5 @@ Write-Output "   3. Clique 'Carregar sem compactacao' e selecione a MESMA pasta:
 Write-Output "      $Destino"
 Write-Output ""
 Write-Output " Depois disso cada navegador se atualiza sozinho (auto-reload via"
-Write-Output " background.js) sempre que o loop em segundo plano baixar versao nova."
+Write-Output " background.js) sempre que uma atualizacao nova for baixada."
 Write-Output "=================================================================="
