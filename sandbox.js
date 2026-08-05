@@ -1,0 +1,292 @@
+// =================================================================
+// LABORATÓRIO SGBSTR - VERSÃO 0.1.9 (DEEP SCANNER + TEXTO DE ALERTAS + SESSAO_NAVEGADOR)
+// =================================================================
+
+const SUPABASE_URL = 'https://vxinqteushefztszmhdb.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4aW5xdGV1c2hlZnp0c3ptaGRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMTgzNjUsImV4cCI6MjA3NDU5NDM2NX0.I9lPwicVkLUmd9e_eRfK_gC0zLgbeRoYVIE2PxtoYDs';
+
+// UUID gerado 1x por carregamento da extensão (1 por sessão de navegador).
+// Amarra cada captura de dataprev_capturas a QUEM gerou ela sem depender de
+// achar o v1/usuario/info "mais recente por horário" — com várias máquinas
+// gravando ao mesmo tempo, "mais recente globalmente" pode vir da máquina
+// errada. Ver "Captura de EDIÇÕES/atualizações" no CLAUDE.md.
+const sessaoNavegador = crypto.randomUUID();
+
+let idAtendimentoAtual = null;
+let bloqueioCaptura = false; 
+let tempoInicio = Date.now();
+let dadosColetados = { 
+    blocos: new Set(), 
+    alertas: new Set(), 
+    membros: [] 
+};
+
+// 1. MONITOR DE TELA (OBSERVADOR)
+const observer = new MutationObserver(() => {
+    if (window.location.hash.includes('/visualizar') && !idAtendimentoAtual && !bloqueioCaptura) {
+        bloqueioCaptura = true;
+        console.log("LAB 0.1.9: Iniciando Deep Scanner...");
+        setTimeout(iniciarCaptura, 4000); 
+    }
+    mapearBotoesNavegacao();
+    capturarAlertasProfundos();
+});
+
+observer.observe(document.body, { childList: true, subtree: true });
+
+// 2. FUNÇÃO DE EXTRAÇÃO (SCANNER DE VARREDURA)
+async function iniciarCaptura() {
+    let codFam = "";
+    const elementos = Array.from(document.querySelectorAll('span, p, div, b, strong, h4'));
+    const alvo = elementos.find(el => el.innerText.includes('Código Familiar') && /\d+/.test(el.innerText));
+    
+    if (alvo) {
+        codFam = alvo.innerText.replace(/\D/g, '');
+    } else {
+        const todosNumeros = document.body.innerText.match(/\d{11}/g);
+        if (todosNumeros) codFam = todosNumeros[0]; 
+    }
+
+    const nomeOp = document.querySelector('.text-weight-bold')?.innerText.split('-')[0].trim() || "OP_DESCONHECIDO";
+    
+    const membros = [];
+    document.querySelectorAll('[class*="MembroFamilia_panel"]').forEach(card => {
+        const nomeEl = card.querySelector('[id^="idNomePessoa"]') || card.querySelector('[class*="MembroFamilia_name"]');
+        const nomeBruto = nomeEl ? nomeEl.innerText.trim() : "";
+        const nomeLimpo = nomeBruto.replace(/^\d+\.\s*/, ''); 
+
+        const cpfEl = card.querySelector('[id^="idCpf"]');
+        const cpf = cpfEl ? cpfEl.innerText.replace(/\D/g, '').substring(0, 11) : "";
+
+        const nisEl = card.querySelector('[id^="idNis"]');
+        const nis = nisEl ? nisEl.innerText.replace(/\D/g, '') : "";
+
+        const parentesco = card.querySelector('[class*="MembroFamilia_mainData"]')?.innerText.replace(nomeBruto, '').replace('\n', '').trim();
+        const status = card.querySelector('[class*="MembroFamilia_tag"]')?.innerText.trim();
+
+        if (nomeLimpo && (cpf || nis)) {
+            membros.push({ nome: nomeLimpo, cpf, nis, parentesco, status });
+        }
+    });
+
+    if (membros.length === 0) {
+        bloqueioCaptura = false;
+        return;
+    }
+
+    dadosColetados.membros = membros;
+
+    const payload = {
+        nome_operador: nomeOp,
+        codigo_familiar: codFam || "NÃO LOCALIZADO",
+        cpf_rf_real: membros[0]?.cpf || "NÃO LOCALIZADO",
+        lista_membros_real: membros,
+        acao_fluxo: 'CONSULTA',
+        status_final: 'ABERTO'
+    };
+
+    try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/atendimentos_laboratorio`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Prefer': 'return=representation' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data[0]) {
+            idAtendimentoAtual = data[0].id;
+            console.log("✅ LAB 0.1.9: Registro Criado!", idAtendimentoAtual);
+            setInterval(heartbeatSync, 10000);
+        }
+    } catch (err) {
+        console.error("❌ LAB Erro:", err);
+        bloqueioCaptura = false;
+    }
+}
+
+// 3. CAPTURA PROFUNDA DE ALERTAS (DENTRO DAS DIVS)
+function capturarAlertasProfundos() {
+    // Captura alertas clássicos (vermelhos/amarelos)
+    const seletoresAlerta = '.text-negative, .text-warning, .q-notification, .MembroFamilia_accordionDetails__2f1kw, [style*="rgb(251, 189, 8)"]';
+    
+    document.querySelectorAll(seletoresAlerta).forEach(a => {
+        const msg = a.innerText.trim();
+        // Filtra para não pegar textos vazios ou padrões genéricos
+        if (msg.length > 8 && !msg.includes("Nenhuma pendência") && !msg.includes("Nenhuma ocorrência")) {
+            if (!dadosColetados.alertas.has(msg)) {
+                dadosColetados.alertas.add(msg);
+                console.log("LAB: Novo alerta/pendência capturado:", msg);
+            }
+        }
+    });
+}
+
+// 4. HEARTBEAT E NAVEGAÇÃO
+async function heartbeatSync() {
+    if (!idAtendimentoAtual) return;
+    fetch(`${SUPABASE_URL}/rest/v1/atendimentos_laboratorio?id=eq.${idAtendimentoAtual}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({
+            blocos_visitados: Array.from(dadosColetados.blocos),
+            alertas_identificados: Array.from(dadosColetados.alertas)
+        })
+    });
+}
+
+function mapearBotoesNavegacao() {
+    document.querySelectorAll('.q-tab, .q-item, button, .br-button, [role="button"]').forEach(el => {
+        if (!el.dataset.monitorado) {
+            el.addEventListener('click', () => {
+                const texto = el.innerText.trim().split('\n')[0];
+                if (texto.length > 1 && texto.length < 60) {
+                    dadosColetados.blocos.add(texto);
+                }
+            });
+            el.dataset.monitorado = "true";
+        }
+    });
+}
+
+// 5. DETECÇÃO DE AÇÃO (FILTRO RIGOROSO POR TAG E ID)
+document.addEventListener('click', (e) => {
+    const target = e.target.closest('button, div[id*="Familia"], #finalizarbtn');
+    if (!target) return;
+
+    const id = target.id || "";
+    const txt = target.innerText?.toUpperCase() || "";
+
+    // Só muda o status se for um clique REAL em botões de comando
+    if (id === 'alterarFamilia' || (target.tagName === 'BUTTON' && txt.includes('ALTERAR'))) {
+        console.log("LAB: Status -> ALTERACAO");
+        atualizarAcaoFluxo('ALTERACAO');
+    } 
+    else if (id === 'abrirIncluirFamilia' || (target.tagName === 'BUTTON' && txt.includes('INCLUIR'))) {
+        console.log("LAB: Status -> INCLUSAO");
+        atualizarAcaoFluxo('INCLUSAO');
+    }
+    else if (id === 'excluirFamilia') {
+        atualizarAcaoFluxo('EXCLUSAO');
+    }
+    else if (id === 'finalizarbtn' || (target.tagName === 'BUTTON' && txt.includes('FINALIZAR'))) {
+        finalizarAtendimento('CONCLUIDO');
+    }
+});
+
+async function atualizarAcaoFluxo(novaAcao) {
+    if (!idAtendimentoAtual) return;
+    await fetch(`${SUPABASE_URL}/rest/v1/atendimentos_laboratorio?id=eq.${idAtendimentoAtual}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ acao_fluxo: novaAcao })
+    });
+}
+
+async function finalizarAtendimento(statusFinal = 'ABANDONADO') {
+    if (!idAtendimentoAtual) return;
+    const tempoTotal = Math.floor((Date.now() - tempoInicio) / 1000);
+    await fetch(`${SUPABASE_URL}/rest/v1/atendimentos_laboratorio?id=eq.${idAtendimentoAtual}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({
+            status_final: statusFinal,
+            blocos_visitados: Array.from(dadosColetados.blocos),
+            alertas_identificados: Array.from(dadosColetados.alertas),
+            tempo_permanencia_segundos: tempoTotal
+        })
+    });
+    idAtendimentoAtual = null;
+    bloqueioCaptura = false;
+    tempoInicio = Date.now();
+    dadosColetados = { blocos: new Set(), alertas: new Set(), membros: [] };
+}
+
+window.addEventListener('hashchange', () => {
+    if (!window.location.hash.includes('/visualizar') && idAtendimentoAtual) {
+        finalizarAtendimento('SAIU_DA_TELA');
+    }
+});
+
+// =================================================================
+// 6. CAPTURA BRUTA DE REDE (recebe do interceptor.js via postMessage
+// e grava a resposta JSON completa da API do Cadastro Único)
+// =================================================================
+
+// Extrai o número familiar da URL por padrões conhecidos (path/query),
+// não por contagem de dígitos — código familiar varia de 8 a 10+ dígitos
+// dependendo da família, e um regex genérico tipo \d{9,11} deixa passar
+// famílias de 8 dígitos e pode colidir com outros números na URL (ex:
+// código IBGE do município, idPrefeitura). Fallback genérico só entra se
+// nenhum padrão nomeado bater.
+function extrairNumeroFamiliar(url) {
+    const padroesNomeados = [
+        /numero-familiar\/(\d+)/,
+        /pessoas-transferidas\/(\d+)/,
+        /familia\/(\d+)/,
+        /[?&](?:numeroFamiliar|nuFamiliar)=(\d+)/
+    ];
+    for (const padrao of padroesNomeados) {
+        const m = url.match(padrao);
+        if (m) return m[1];
+    }
+    // Busca por CPF (ex: v1/familias?tipoBusca=1&cpf=...) pode retornar
+    // várias famílias diferentes pro mesmo CPF (histórico entre municípios)
+    // — não tem um único numero_familiar pra essa captura, e o CPF não é
+    // número de família. Sem essa exclusão, o fallback genérico abaixo
+    // pegaria o CPF e gravaria errado como se fosse numero_familiar.
+    if (/[?&]cpf=\d+/.test(url)) return null;
+    const fallback = url.match(/(\d{8,11})/);
+    return fallback ? fallback[1] : null;
+}
+
+window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const msg = event.data;
+    if (!msg || msg.fonte !== 'sgbstr-lab-rede') return;
+
+    let corpoJson;
+    if (msg.corpo === '') {
+        console.log(`LAB: resposta com corpo vazio (status ${msg.status}), gravando payload {} -> ${msg.url}`);
+        corpoJson = {};
+    } else {
+        try {
+            corpoJson = JSON.parse(msg.corpo);
+        } catch (e) {
+            console.error(`LAB: falha ao parsear corpo da resposta, ignorando captura -> ${msg.url}`, e);
+            return;
+        }
+    }
+    if (corpoJson === null) {
+        console.log(`LAB: resposta com corpo "null", ignorando captura -> ${msg.url}`);
+        return;
+    }
+
+    const numeroFamiliar = extrairNumeroFamiliar(msg.url);
+    const endpoint = msg.url.split('/portal-api/')[1] || msg.url;
+
+    fetch(`${SUPABASE_URL}/rest/v1/dataprev_capturas`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`
+        },
+        body: JSON.stringify({
+            id_atendimento: idAtendimentoAtual,
+            endpoint,
+            metodo: msg.metodo,
+            status_http: msg.status,
+            numero_familiar: numeroFamiliar,
+            payload: corpoJson,
+            url: msg.url,
+            sessao_navegador: sessaoNavegador
+        })
+    }).then((res) => {
+        if (res.ok) {
+            console.log(`LAB: captura de rede gravada -> ${endpoint}`);
+        } else {
+            res.text().then((corpo) => console.error(`LAB: captura de rede rejeitada (${res.status}) -> ${endpoint}`, corpo));
+        }
+    }).catch((err) => {
+        console.error('LAB: falha ao gravar captura de rede', err);
+    });
+});
