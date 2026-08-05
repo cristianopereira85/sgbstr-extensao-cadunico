@@ -1,0 +1,81 @@
+=====================================================================
+ SGBSTR - Extensao CadunicoSLZ - Comandos de instalacao
+=====================================================================
+
+------------------------------------------------------------
+ USO NORMAL (maquina nova) - so isso, nada mais
+------------------------------------------------------------
+
+1) Cola no PowerShell (baixa o instalador pra Area de Trabalho):
+
+powershell -Command "irm 'https://raw.githubusercontent.com/cristianopereira85/sgbstr-extensao-cadunico/main/instalar.bat' -OutFile $env:USERPROFILE\Desktop\instalar-extensao.bat"
+
+2) De duplo-clique em "instalar-extensao.bat" na Area de Trabalho.
+   (pode tambem levar esse .bat num pendrive e pular o passo 1)
+
+3) O .bat imprime o caminho da pasta no final (algo como
+   C:\Users\<usuario>\AppData\Local\SGBSTR-Extensao). Usar esse
+   caminho no passo 4.
+
+4) Google Chrome:
+   - Abrir chrome://extensions
+   - Ativar "Modo do desenvolvedor" (canto superior direito)
+   - Clicar "Carregar sem compactacao" e selecionar a pasta do passo 3
+
+   Microsoft Edge:
+   - Abrir edge://extensions
+   - Ativar "Modo de desenvolvedor" (menu lateral esquerdo)
+   - Clicar "Carregar sem compactacao" e selecionar a MESMA pasta
+
+Pronto. Dai em diante a extensao se atualiza sozinha (loop em segundo
+plano + auto-reload dentro do navegador), sem precisar rodar nada de
+novo nem em Chrome nem em Edge.
+
+
+------------------------------------------------------------
+ SE ALGO DER ERRADO - comandos usados no diagnostico de hoje,
+ na ordem em que foram necessarios (guardar pra referencia)
+------------------------------------------------------------
+
+# Se o "irm ... | iex" travar mostrando ">>" no console:
+# Ctrl+C pra sair, e digitar/colar de novo sem aninhar "powershell -Command"
+# por fora (o "irm | iex" ja roda direto no console atual).
+
+# Forma robusta de baixar e rodar um .ps1 (evita o "iex" e problemas de
+# cache do GitHub) - baixa pra arquivo de verdade e executa:
+irm "https://raw.githubusercontent.com/cristianopereira85/sgbstr-extensao-cadunico/main/instalar-extensao.ps1" -OutFile "$env:TEMP\instalar-extensao.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\instalar-extensao.ps1"
+
+# Se aparecer "execucao de scripts foi desabilitada": faltou o flag
+# -ExecutionPolicy Bypass ao chamar o .ps1 diretamente. Sempre incluir:
+powershell -ExecutionPolicy Bypass -File "CAMINHO\DO\SCRIPT.ps1"
+
+# Pra forcar o download de uma atualizacao nova AGORA, sem esperar o
+# loop de fundo (que roda a cada 30 min por padrao):
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\SGBSTR-Extensao\atualizar-extensao.ps1"
+
+# Pra conferir se os arquivos locais ja pegaram a versao nova sem
+# esperar o navegador recarregar sozinho, abrir e olhar o campo
+# "version" dentro de:
+# %LOCALAPPDATA%\SGBSTR-Extensao\manifest.json
+
+# "Register-ScheduledTask: Acesso negado" (GPO bloqueando usuario
+# comum) - nao precisa mais desse comando, o instalador atual (a
+# partir do commit "Troca Agendador de Tarefas por atalho na pasta
+# Inicializar") ja usa a pasta Inicializar em vez de Tarefa Agendada,
+# que nunca exige permissao especial. Se ainda usar uma copia antiga
+# do instalador, so baixar a versao atual do zip novamente.
+
+
+------------------------------------------------------------
+ REFERENCIA - onde as coisas ficam
+------------------------------------------------------------
+Repositorio (codigo-fonte + instaladores):
+  https://github.com/cristianopereira85/sgbstr-extensao-cadunico
+
+Pasta instalada em cada maquina:
+  %LOCALAPPDATA%\SGBSTR-Extensao
+
+Atalho de auto-atualizacao (roda a cada login):
+  %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\
+  SGBSTR - Atualizar Extensao CadUnico.lnk
