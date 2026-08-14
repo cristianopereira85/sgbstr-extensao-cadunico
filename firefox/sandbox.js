@@ -1,5 +1,5 @@
 // =================================================================
-// LABORATÓRIO SGBSTR - VERSÃO 0.4.0 (+ ID_MAQUINA + FINGERPRINT_NAVEGADOR)
+// LABORATÓRIO SGBSTR - VERSÃO 0.5.0 (+ VERSAO_EXTENSAO EM CADA CAPTURA)
 // =================================================================
 
 const SUPABASE_URL = 'https://vxinqteushefztszmhdb.supabase.co';
@@ -315,7 +315,8 @@ window.addEventListener('message', async (event) => {
             url: msg.url,
             sessao_navegador: sessaoNavegador,
             id_maquina: idMaquina,
-            fingerprint_navegador: fingerprintNavegador
+            fingerprint_navegador: fingerprintNavegador,
+            versao_extensao: chrome.runtime.getManifest().version
         })
     }).then((res) => {
         if (res.ok) {
