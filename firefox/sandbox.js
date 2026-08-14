@@ -1,5 +1,5 @@
 // =================================================================
-// LABORATÓRIO SGBSTR - VERSÃO 0.1.9 (DEEP SCANNER + TEXTO DE ALERTAS + SESSAO_NAVEGADOR)
+// LABORATÓRIO SGBSTR - VERSÃO 0.4.0 (+ ID_MAQUINA + FINGERPRINT_NAVEGADOR)
 // =================================================================
 
 const SUPABASE_URL = 'https://vxinqteushefztszmhdb.supabase.co';
@@ -11,6 +11,40 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 // gravando ao mesmo tempo, "mais recente globalmente" pode vir da máquina
 // errada. Ver "Captura de EDIÇÕES/atualizações" no CLAUDE.md.
 const sessaoNavegador = crypto.randomUUID();
+
+// ID persistente da MÁQUINA (diferente do sessaoNavegador acima, que
+// reseta a cada reinício do navegador). Gerado 1x e salvo em
+// chrome.storage.local, que sobrevive a reinícios/reboots — só reseta se
+// a extensão for desinstalada/reinstalada ou os dados dela forem limpos.
+// Não é hostname real (nenhuma API de extensão expõe isso, é bloqueio de
+// privacidade do próprio navegador) — é o substituto prático de
+// "identidade da máquina" pra detectar quando uma máquina para de gerar
+// captura (extensão desativada, trocada, com defeito). Ver "Identificação
+// de máquina" no CLAUDE.md.
+let idMaquinaPromise = null;
+async function obterIdMaquina() {
+    if (idMaquinaPromise) return idMaquinaPromise;
+    idMaquinaPromise = (async () => {
+        const armazenado = await chrome.storage.local.get('idMaquina');
+        if (armazenado.idMaquina) return armazenado.idMaquina;
+        const novoId = crypto.randomUUID();
+        await chrome.storage.local.set({ idMaquina: novoId });
+        return novoId;
+    })();
+    return idMaquinaPromise;
+}
+
+// Fingerprint leve de navegador/SO, capturado 1x por carregamento — serve
+// de "dupla verificação" pro idMaquina: se um idMaquina novo aparecer com
+// o mesmo fingerprint de uma máquina já conhecida, é sinal de que a
+// extensão foi reinstalada na MESMA máquina física, não que surgiu uma
+// máquina nova de verdade.
+const fingerprintNavegador = {
+    userAgent: navigator.userAgent,
+    plataforma: navigator.platform,
+    idioma: navigator.language,
+    tela: `${screen.width}x${screen.height}`
+};
 
 let idAtendimentoAtual = null;
 let bloqueioCaptura = false; 
@@ -238,7 +272,7 @@ function extrairNumeroFamiliar(url) {
     return fallback ? fallback[1] : null;
 }
 
-window.addEventListener('message', (event) => {
+window.addEventListener('message', async (event) => {
     if (event.source !== window) return;
     const msg = event.data;
     if (!msg || msg.fonte !== 'sgbstr-lab-rede') return;
@@ -262,6 +296,7 @@ window.addEventListener('message', (event) => {
 
     const numeroFamiliar = extrairNumeroFamiliar(msg.url);
     const endpoint = msg.url.split('/portal-api/')[1] || msg.url;
+    const idMaquina = await obterIdMaquina();
 
     fetch(`${SUPABASE_URL}/rest/v1/dataprev_capturas`, {
         method: 'POST',
@@ -278,7 +313,9 @@ window.addEventListener('message', (event) => {
             numero_familiar: numeroFamiliar,
             payload: corpoJson,
             url: msg.url,
-            sessao_navegador: sessaoNavegador
+            sessao_navegador: sessaoNavegador,
+            id_maquina: idMaquina,
+            fingerprint_navegador: fingerprintNavegador
         })
     }).then((res) => {
         if (res.ok) {
