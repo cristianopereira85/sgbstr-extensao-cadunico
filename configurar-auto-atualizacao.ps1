@@ -53,7 +53,17 @@ try {
         Description = "Baixa sozinho a versao mais recente da extensao CadunicoSLZ do GitHub a cada 30 min."
         Force       = $true
     }
-    Register-ScheduledTask @tarefaParams | Out-Null
+    # -ErrorAction Stop explicito na propria chamada: o modulo ScheduledTasks
+    # (CIM por baixo) as vezes ignora $ErrorActionPreference = "Stop" ambiente
+    # e escreve "Acesso negado" como erro nao-terminante mesmo assim - visto
+    # na pratica em 17/08/2026 (o catch nao rodava, seguia direto pro "OK").
+    Register-ScheduledTask @tarefaParams -ErrorAction Stop | Out-Null
+
+    # Confirma que a tarefa existe de verdade antes de declarar sucesso -
+    # nao confiar so na ausencia de excecao visivel (mesmo motivo acima).
+    if (-not (Get-ScheduledTask -TaskName $nomeTarefa -ErrorAction SilentlyContinue)) {
+        throw "Register-ScheduledTask nao lancou erro mas a tarefa nao existe."
+    }
 
     Write-Output "OK: Tarefa Agendada registrada (roda a cada 30min + a cada login)."
 } catch {
