@@ -42,10 +42,9 @@ $ErrorActionPreference = "Stop"
 # subjacente estava fechada".
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-# Se identifica como navegador (ver mesmo comentario em atualizar-extensao.ps1)
-# - evita bloqueio de proxy/AV corporativo por User-Agent "de script".
-# String literal (nao type accelerator) - ver motivo em atualizar-extensao.ps1.
-$userAgentNavegador = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+# NAO usar -UserAgent disfarçado de Chrome contra o Supabase (ver motivo
+# detalhado em atualizar-extensao.ps1) - causa 400 Bad Request em algumas
+# maquinas por desconfianca da Cloudflare (UA diz Chrome, TLS nao bate).
 
 # --- 1. Baixa a extensao (mesma logica do atualizar-extensao.ps1) ---
 $pastaTemp = Join-Path $env:TEMP "sgbstr-install-$(Get-Random)"
@@ -55,7 +54,7 @@ try {
     New-Item -ItemType Directory -Force -Path $pastaTemp | Out-Null
 
     Write-Output "Baixando extensao de $RepoZipUrl ..."
-    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipPath -UseBasicParsing -UserAgent $userAgentNavegador
+    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipPath -UseBasicParsing
 
     Expand-Archive -Path $zipPath -DestinationPath $pastaTemp -Force
 

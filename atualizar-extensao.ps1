@@ -31,14 +31,13 @@ $ErrorActionPreference = "Stop"
 # de forma diferente em cada maquina.
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-# Some proxy/AV corporativo bloqueia por User-Agent "de script" (o padrao
-# do PowerShell se identifica como WindowsPowerShell/x.x, o que e um alvo
-# comum de bloqueio automatico). Se identificar como navegador evita isso.
-# String literal em vez de [Microsoft.PowerShell.Commands.PSUserAgent]::Chrome
-# de proposito: esse type accelerator fica bloqueado ("Nao e possivel
-# localizar o tipo") em maquina com Constrained Language Mode (AppLocker/GPO
-# de orgao publico - visto na pratica num CRAS em 17/08/2026).
-$userAgentNavegador = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+# NAO usar -UserAgent disfarçado de Chrome aqui: era necessario so pro
+# GitHub (que ja nao usamos mais no download direto). Contra o Supabase
+# (Cloudflare por baixo), esse disfarce faz o EFEITO CONTRARIO - a
+# Cloudflare desconfia quando o User-Agent diz "Chrome" mas o handshake
+# TLS por baixo nao bate com um Chrome de verdade, e rejeita com 400 Bad
+# Request. Visto na pratica em 17/08/2026 (maquina domestica, nao de
+# CRAS): mesmo link funcionava liso sem -UserAgent e dava 400 com ele.
 
 $pastaTemp = Join-Path $env:TEMP "sgbstr-update-$(Get-Random)"
 $zipPath = Join-Path $pastaTemp "extensao.zip"
@@ -47,7 +46,7 @@ try {
     New-Item -ItemType Directory -Force -Path $pastaTemp | Out-Null
 
     Write-Output "Baixando ultima versao de $RepoZipUrl ..."
-    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipPath -UseBasicParsing -UserAgent $userAgentNavegador
+    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipPath -UseBasicParsing
 
     Expand-Archive -Path $zipPath -DestinationPath $pastaTemp -Force
 
