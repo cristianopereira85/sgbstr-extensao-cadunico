@@ -16,7 +16,11 @@
 
 param(
     [string]$Destino = "$env:LOCALAPPDATA\SGBSTR-Extensao",
-    [string]$RepoZipUrl = "https://github.com/cristianopereira85/sgbstr-extensao-cadunico/archive/refs/heads/main.zip"
+    # Bucket proprio do Supabase, nao mais o GitHub (raw.githubusercontent.com/
+    # codeload deram erro de conexao, tipo bloqueado por GPO e rate limit (429)
+    # em maquinas de CRAS diferentes em 17/08/2026 - infraestrutura nossa nao
+    # depende de limite de terceiro).
+    [string]$RepoZipUrl = "https://vxinqteushefztszmhdb.supabase.co/storage/v1/object/public/extensao%20lab%20chrome/sgbstr-extensao-cadunico-main.zip"
 )
 
 $ErrorActionPreference = "Stop"

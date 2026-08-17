@@ -30,7 +30,8 @@
 
 param(
     [string]$Destino = "$env:LOCALAPPDATA\SGBSTR-Extensao",
-    [string]$RepoZipUrl = "https://github.com/cristianopereira85/sgbstr-extensao-cadunico/archive/refs/heads/main.zip",
+    # Bucket proprio do Supabase - ver mesmo comentario em atualizar-extensao.ps1.
+    [string]$RepoZipUrl = "https://vxinqteushefztszmhdb.supabase.co/storage/v1/object/public/extensao%20lab%20chrome/sgbstr-extensao-cadunico-main.zip",
     [int]$IntervaloMinutos = 30
 )
 
