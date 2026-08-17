@@ -43,7 +43,8 @@ $ErrorActionPreference = "Stop"
 
 # Se identifica como navegador (ver mesmo comentario em atualizar-extensao.ps1)
 # - evita bloqueio de proxy/AV corporativo por User-Agent "de script".
-$userAgentNavegador = [Microsoft.PowerShell.Commands.PSUserAgent]::Chrome
+# String literal (nao type accelerator) - ver motivo em atualizar-extensao.ps1.
+$userAgentNavegador = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 # --- 1. Baixa a extensao (mesma logica do atualizar-extensao.ps1) ---
 $pastaTemp = Join-Path $env:TEMP "sgbstr-install-$(Get-Random)"

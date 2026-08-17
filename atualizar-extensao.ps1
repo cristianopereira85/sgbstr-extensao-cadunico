@@ -30,7 +30,11 @@ $ErrorActionPreference = "Stop"
 # Some proxy/AV corporativo bloqueia por User-Agent "de script" (o padrao
 # do PowerShell se identifica como WindowsPowerShell/x.x, o que e um alvo
 # comum de bloqueio automatico). Se identificar como navegador evita isso.
-$userAgentNavegador = [Microsoft.PowerShell.Commands.PSUserAgent]::Chrome
+# String literal em vez de [Microsoft.PowerShell.Commands.PSUserAgent]::Chrome
+# de proposito: esse type accelerator fica bloqueado ("Nao e possivel
+# localizar o tipo") em maquina com Constrained Language Mode (AppLocker/GPO
+# de orgao publico - visto na pratica num CRAS em 17/08/2026).
+$userAgentNavegador = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 $pastaTemp = Join-Path $env:TEMP "sgbstr-update-$(Get-Random)"
 $zipPath = Join-Path $pastaTemp "extensao.zip"
