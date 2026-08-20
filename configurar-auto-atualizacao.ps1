@@ -35,15 +35,27 @@ if (-not (Test-Path $scriptAtualizador)) {
 # nunca apaga esse arquivo (nao faz parte do ZIP), entao sobrevive a
 # qualquer atualizacao futura sem esforco extra.
 #
-# So pergunta na PRIMEIRA vez (arquivo ainda nao existe). Rodar este
-# script de novo numa maquina ja configurada nao repete a pergunta.
+# So pergunta se o CRAS ainda nao estiver definido. O atualizador
+# silencioso (atualizar-extensao.ps1, roda sozinho a cada 30min sem tela
+# pra perguntar nada) pode ja ter criado este arquivo so com o
+# id_instalacao (cras null) numa maquina que so recebeu a atualizacao
+# automatica sem passar pelo instalador de novo - nesse caso, mantem o
+# MESMO id_instalacao (nao gera outro) e so completa o CRAS que faltava.
 $configPath = Join-Path $Destino "config_maquina.json"
 
+$configAtual = $null
 if (Test-Path $configPath) {
     $configAtual = Get-Content $configPath -Raw | ConvertFrom-Json
+}
+
+if ($configAtual -and -not [string]::IsNullOrWhiteSpace($configAtual.cras)) {
     Write-Output "OK: maquina ja identificada antes (CRAS: $($configAtual.cras))."
 } else {
-    $idInstalacao = [guid]::NewGuid().ToString()
+    if ($configAtual -and $configAtual.id_instalacao) {
+        $idInstalacao = $configAtual.id_instalacao
+    } else {
+        $idInstalacao = [guid]::NewGuid().ToString()
+    }
 
     Write-Output ""
     Write-Output "=================================================================="

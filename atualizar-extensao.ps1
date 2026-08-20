@@ -61,6 +61,27 @@ try {
     New-Item -ItemType Directory -Force -Path $Destino | Out-Null
     Copy-Item -Path "$($pastaExtraida.FullName)\*" -Destination $Destino -Recurse -Force
 
+    # config_maquina.json (id_instalacao/cras) NAO faz parte do ZIP, entao
+    # Copy-Item acima nunca apaga ele - sobrevive a toda atualizacao sem
+    # esforco. Mas maquinas que ja estavam instaladas ANTES dessa feature
+    # existir (20/08/2026) nunca tiveram esse arquivo criado (so o
+    # instalador pergunta o CRAS, e esse script roda sozinho/escondido, sem
+    # tela pra perguntar nada). Pra essas, criamos aqui so o id_instalacao
+    # (sem CRAS - fica null, cai no fallback de deteccao automatica que ja
+    # existia antes) - assim toda maquina ganha uma identidade fisica
+    # compartilhada entre Chrome/Edge no proximo ciclo de atualizacao, sem
+    # precisar visitar ninguem. Nunca sobrescreve um arquivo ja existente.
+    $configPath = Join-Path $Destino "config_maquina.json"
+    if (-not (Test-Path $configPath)) {
+        try {
+            $configObj = @{ id_instalacao = [guid]::NewGuid().ToString(); cras = $null }
+            $configObj | ConvertTo-Json | Set-Content -Path $configPath -Encoding utf8
+            Write-Output "id_instalacao criado automaticamente (CRAS ainda nao definido - rode configurar-auto-atualizacao.ps1 pra definir)."
+        } catch {
+            Write-Output "Aviso: nao consegui criar config_maquina.json ($($_.Exception.Message)) - sem efeito na captura normal."
+        }
+    }
+
     Write-Output "Extensao atualizada com sucesso em: $Destino"
 } finally {
     Remove-Item -Path $pastaTemp -Recurse -Force -ErrorAction SilentlyContinue
