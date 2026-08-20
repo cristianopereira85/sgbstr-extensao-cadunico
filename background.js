@@ -73,6 +73,22 @@ async function obterIdMaquina() {
     return novoId;
 }
 
+// Mesma lógica do sandbox.js: config_maquina.json é gravado 1x pelo
+// INSTALADOR na pasta compartilhada de onde Chrome e Edge carregam a
+// extensão — id_instalacao de dentro dele é igual nos dois navegadores da
+// mesma máquina física (diferente do idMaquina, que é por navegador). Ver
+// CLAUDE.md, 20/08/2026.
+async function obterConfigMaquina() {
+    try {
+        const resposta = await fetch(chrome.runtime.getURL('config_maquina.json'), { cache: 'no-store' });
+        if (!resposta.ok) return { idInstalacao: null, cras: null };
+        const json = await resposta.json();
+        return { idInstalacao: json.id_instalacao ?? null, cras: json.cras ?? null };
+    } catch (erro) {
+        return { idInstalacao: null, cras: null };
+    }
+}
+
 // screen/navigator.platform não existem em service worker (sem tela) —
 // captura só o que é seguro nesse contexto. Nunca deixa o heartbeat falhar
 // por causa do fingerprint: se alguma propriedade não existir, fica null.
@@ -91,6 +107,7 @@ function coletarFingerprintBasico() {
 async function enviarHeartbeat() {
     try {
         const idMaquina = await obterIdMaquina();
+        const configMaquina = await obterConfigMaquina();
         const agora = new Date().toISOString();
 
         const res = await fetch(`${SUPABASE_URL}/rest/v1/maquinas_heartbeat?on_conflict=id_maquina`, {
@@ -105,7 +122,9 @@ async function enviarHeartbeat() {
                 id_maquina: idMaquina,
                 versao_extensao: chrome.runtime.getManifest().version,
                 fingerprint_navegador: coletarFingerprintBasico(),
-                ultimo_heartbeat: agora
+                ultimo_heartbeat: agora,
+                id_instalacao: configMaquina.idInstalacao,
+                cras_config: configMaquina.cras
             })
         });
         if (res.ok) {

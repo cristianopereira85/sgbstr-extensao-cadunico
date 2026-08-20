@@ -24,6 +24,48 @@ if (-not (Test-Path $scriptAtualizador)) {
     exit 1
 }
 
+# =================================================================
+# Identidade da maquina fisica (20/08/2026)
+# =================================================================
+# config_maquina.json fica na MESMA pasta compartilhada de onde Chrome e
+# Edge carregam a extensao descompactada - por isso o id_instalacao
+# gerado aqui e o CRAS digitado aqui valem pros dois navegadores igual,
+# sem precisar repetir esse passo por navegador. O atualizador
+# (atualizar-extensao.ps1) so copia arquivos do ZIP por cima da pasta -
+# nunca apaga esse arquivo (nao faz parte do ZIP), entao sobrevive a
+# qualquer atualizacao futura sem esforco extra.
+#
+# So pergunta na PRIMEIRA vez (arquivo ainda nao existe). Rodar este
+# script de novo numa maquina ja configurada nao repete a pergunta.
+$configPath = Join-Path $Destino "config_maquina.json"
+
+if (Test-Path $configPath) {
+    $configAtual = Get-Content $configPath -Raw | ConvertFrom-Json
+    Write-Output "OK: maquina ja identificada antes (CRAS: $($configAtual.cras))."
+} else {
+    $idInstalacao = [guid]::NewGuid().ToString()
+
+    Write-Output ""
+    Write-Output "=================================================================="
+    Write-Output " Qual e o CRAS/unidade desta maquina?"
+    Write-Output " (obrigatorio - exemplos: ANIL, COHAB, TURU, BAIRRO DE FATIMA,"
+    Write-Output " SEDE DA SEMCAS, CENTRO POP CENTRO)"
+    Write-Output "=================================================================="
+    $cras = ""
+    while ([string]::IsNullOrWhiteSpace($cras)) {
+        $cras = Read-Host "Digite o nome do CRAS/unidade"
+        if ([string]::IsNullOrWhiteSpace($cras)) {
+            Write-Output "Nao pode ficar em branco - digite o nome do CRAS/unidade."
+        }
+    }
+    $cras = $cras.Trim().ToUpper()
+
+    $configObj = @{ id_instalacao = $idInstalacao; cras = $cras }
+    $configObj | ConvertTo-Json | Set-Content -Path $configPath -Encoding utf8
+
+    Write-Output "OK: maquina identificada como '$cras' (id_instalacao $idInstalacao)."
+}
+
 $nomeTarefa = "SGBSTR - Atualizar Extensao CadUnico"
 
 try {

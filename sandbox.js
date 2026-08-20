@@ -46,6 +46,32 @@ const fingerprintNavegador = {
     tela: `${screen.width}x${screen.height}`
 };
 
+// config_maquina.json é gravado 1x pelo INSTALADOR (não pelo navegador)
+// dentro da mesma pasta compartilhada de onde Chrome e Edge carregam a
+// extensão descompactada — por isso o id_instalacao de dentro desse
+// arquivo é IGUAL nos dois navegadores da mesma máquina física, ao
+// contrário do idMaquina acima (que é gerado por chrome.storage.local,
+// não compartilhado entre navegadores). Resolve na raiz o problema de
+// "mesmo operador, navegador diferente, aparece como máquina nova" (ver
+// CLAUDE.md, 20/08/2026). Se o arquivo não existir (máquina ainda não
+// passou pela versão nova do instalador), os dois campos ficam null e
+// nada muda no comportamento de hoje.
+let configMaquinaPromise = null;
+async function obterConfigMaquina() {
+    if (configMaquinaPromise) return configMaquinaPromise;
+    configMaquinaPromise = (async () => {
+        try {
+            const resposta = await fetch(chrome.runtime.getURL('config_maquina.json'), { cache: 'no-store' });
+            if (!resposta.ok) return { idInstalacao: null, cras: null };
+            const json = await resposta.json();
+            return { idInstalacao: json.id_instalacao ?? null, cras: json.cras ?? null };
+        } catch (erro) {
+            return { idInstalacao: null, cras: null };
+        }
+    })();
+    return configMaquinaPromise;
+}
+
 let idAtendimentoAtual = null;
 let bloqueioCaptura = false; 
 let tempoInicio = Date.now();
@@ -297,6 +323,7 @@ window.addEventListener('message', async (event) => {
     const numeroFamiliar = extrairNumeroFamiliar(msg.url);
     const endpoint = msg.url.split('/portal-api/')[1] || msg.url;
     const idMaquina = await obterIdMaquina();
+    const configMaquina = await obterConfigMaquina();
 
     fetch(`${SUPABASE_URL}/rest/v1/dataprev_capturas`, {
         method: 'POST',
@@ -316,7 +343,9 @@ window.addEventListener('message', async (event) => {
             sessao_navegador: sessaoNavegador,
             id_maquina: idMaquina,
             fingerprint_navegador: fingerprintNavegador,
-            versao_extensao: chrome.runtime.getManifest().version
+            versao_extensao: chrome.runtime.getManifest().version,
+            id_instalacao: configMaquina.idInstalacao,
+            cras_config: configMaquina.cras
         })
     }).then((res) => {
         if (res.ok) {
