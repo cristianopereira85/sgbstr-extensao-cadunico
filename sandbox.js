@@ -72,6 +72,99 @@ async function obterConfigMaquina() {
     return configMaquinaPromise;
 }
 
+// =================================================================
+// AVISO ÚNICO DE CRAS (20/08/2026) — cobre máquinas JÁ instaladas antes
+// desta feature existir (config_maquina.json ainda sem CRAS, ou o
+// arquivo nem existe). Diferente do instalador (que roda escondido, sem
+// tela), este content script roda na própria página do Cadastro Único —
+// onde tem certeza que uma pessoa está olhando — então é o lugar certo
+// pra perguntar sem precisar visitar a máquina fisicamente.
+// =================================================================
+(async () => {
+    try {
+        const configMaquina = await obterConfigMaquina();
+        if (configMaquina.cras) return; // já definido (arquivo ou resposta anterior) — nada a fazer
+
+        const jaPerguntado = await chrome.storage.local.get('crasJaPerguntado');
+        if (jaPerguntado.crasJaPerguntado) return; // já perguntado (e adiado) nesse navegador — não insiste a cada página
+
+        const idMaquina = await obterIdMaquina();
+
+        // confere se OUTRO navegador dessa MESMA máquina física (mesmo
+        // id_instalacao) já respondeu — evita perguntar de novo no Edge se
+        // já foi respondido no Chrome da mesma máquina.
+        if (configMaquina.idInstalacao) {
+            try {
+                const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/cras_conhecido_para_instalacao`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+                    body: JSON.stringify({ p_id_instalacao: configMaquina.idInstalacao })
+                });
+                const crasConhecido = resp.ok ? await resp.json() : null;
+                if (crasConhecido) {
+                    await chrome.storage.local.set({ crasJaPerguntado: true });
+                    return;
+                }
+            } catch (erro) { /* sem resposta do servidor, segue e pergunta mesmo assim */ }
+        }
+
+        mostrarAvisoCras(idMaquina, configMaquina.idInstalacao);
+    } catch (erro) {
+        console.error('LAB: falha ao checar necessidade de perguntar CRAS', erro);
+    }
+})();
+
+function mostrarAvisoCras(idMaquina, idInstalacao) {
+    if (document.getElementById('sgbstr-lab-aviso-cras') || !document.body) return;
+
+    const caixa = document.createElement('div');
+    caixa.id = 'sgbstr-lab-aviso-cras';
+    caixa.style.cssText = `
+        position: fixed; bottom: 16px; right: 16px; z-index: 2147483647;
+        background: #171a21; color: #e6e8eb; border: 1px solid #2a2e38;
+        border-radius: 8px; padding: 14px 16px;
+        font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); max-width: 300px;
+    `;
+    caixa.innerHTML = `
+        <div style="font-weight:600; margin-bottom:8px;">Laboratório CadÚnico</div>
+        <div style="margin-bottom:8px; color:#8a8f99;">Qual o CRAS/unidade desta máquina?</div>
+        <input id="sgbstr-lab-input-cras" type="text" placeholder="Ex: ANIL, COHAB, TURU..."
+            style="width:100%; box-sizing:border-box; padding:6px 8px; border-radius:4px; border:1px solid #2a2e38; background:#0f1115; color:#e6e8eb; font-size:13px; margin-bottom:8px;">
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button id="sgbstr-lab-btn-depois" style="background:transparent; border:none; color:#8a8f99; font-size:12px; cursor:pointer; padding:6px 8px;">Depois</button>
+            <button id="sgbstr-lab-btn-confirmar" style="background:#4a9eff; border:none; color:#fff; border-radius:4px; font-size:12px; font-weight:600; cursor:pointer; padding:6px 12px;">Confirmar</button>
+        </div>
+    `;
+    document.body.appendChild(caixa);
+
+    const input = document.getElementById('sgbstr-lab-input-cras');
+    const remover = () => caixa.remove();
+
+    // "Depois" NÃO marca crasJaPerguntado — volta a aparecer na próxima
+    // navegação, até alguém responder de verdade (é adiável, não descartável).
+    document.getElementById('sgbstr-lab-btn-depois').addEventListener('click', remover);
+
+    const confirmar = async () => {
+        const valor = input.value.trim().toUpperCase();
+        if (!valor) return;
+        try {
+            await fetch(`${SUPABASE_URL}/rest/v1/rpc/informar_cras_maquina`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+                body: JSON.stringify({ p_id_maquina: idMaquina, p_id_instalacao: idInstalacao, p_cras: valor })
+            });
+            await chrome.storage.local.set({ crasJaPerguntado: true });
+            console.log(`LAB: CRAS informado via aviso no navegador -> ${valor}`);
+        } catch (erro) {
+            console.error('LAB: falha ao informar CRAS', erro);
+        }
+        remover();
+    };
+    document.getElementById('sgbstr-lab-btn-confirmar').addEventListener('click', confirmar);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmar(); });
+}
+
 let idAtendimentoAtual = null;
 let bloqueioCaptura = false; 
 let tempoInicio = Date.now();
