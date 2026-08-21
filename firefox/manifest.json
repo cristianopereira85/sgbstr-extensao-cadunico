@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "CadúnicoSLZ",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Registra o histórico completo do atendimento no Cadastro Único, preservando a jornada e as respostas do sistema.",
   "browser_specific_settings": {
     "gecko": {
       "id": "cadunicoslz@semcas.saoluis.ma.gov.br",
       "strict_min_version": "140.0",
+      "update_url": "https://vxinqteushefztszmhdb.supabase.co/storage/v1/object/public/extensao%20lab%20firefox/updates.json",
       "data_collection_permissions": {
         "required": [
           "personallyIdentifyingInfo",
