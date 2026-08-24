@@ -117,37 +117,52 @@ async function obterConfigMaquina() {
 function mostrarAvisoCras(idMaquina, idInstalacao) {
     if (document.getElementById('sgbstr-lab-aviso-cras') || !document.body) return;
 
+    // Moldura cobre a tela toda só pra centralizar a caixa, mas
+    // pointer-events:none nela deixa clique passar direto pro sistema por
+    // baixo — só a caixa em si (pointer-events:auto) intercepta clique.
+    // Decisão do Cristiano (24/08/2026): maior e centralizado, mas sem
+    // travar o atendimento por trás.
+    const moldura = document.createElement('div');
+    moldura.id = 'sgbstr-lab-aviso-cras';
+    moldura.style.cssText = `
+        position: fixed; inset: 0; z-index: 2147483647;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: none;
+    `;
+
     const caixa = document.createElement('div');
-    caixa.id = 'sgbstr-lab-aviso-cras';
     caixa.style.cssText = `
-        position: fixed; bottom: 16px; right: 16px; z-index: 2147483647;
-        background: #171a21; color: #e6e8eb; border: 1px solid #2a2e38;
-        border-radius: 8px; padding: 14px 16px;
+        pointer-events: auto; width: 320px;
+        background: #171a21; color: #e6e8eb; border: 1px solid #323848;
+        border-radius: 12px; padding: 22px 24px;
         font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-        font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); max-width: 300px;
+        font-size: 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.5);
     `;
     caixa.innerHTML = `
-        <div style="font-weight:600; margin-bottom:8px;">Laboratório CadÚnico</div>
-        <div style="margin-bottom:8px; color:#8a8f99;">Qual o CRAS/unidade desta máquina?</div>
+        <div style="font-size:12px; color:#8a8f99; font-weight:600; margin-bottom:10px;">Laboratório CadÚnico</div>
+        <div style="font-size:17px; font-weight:700; margin-bottom:6px;">Em que CRAS você está?</div>
+        <div style="font-size:12.5px; color:#8a8f99; margin-bottom:14px; line-height:1.5;">Preciso saber a unidade desta máquina pra contar certo na produção do dia. Só apareço 1 vez.</div>
         <input id="sgbstr-lab-input-cras" type="text" placeholder="Ex: ANIL, COHAB, TURU..."
-            style="width:100%; box-sizing:border-box; padding:6px 8px; border-radius:4px; border:1px solid #2a2e38; background:#0f1115; color:#e6e8eb; font-size:13px; margin-bottom:8px;">
-        <div style="display:flex; gap:8px; justify-content:flex-end;">
-            <button id="sgbstr-lab-btn-depois" style="background:transparent; border:none; color:#8a8f99; font-size:12px; cursor:pointer; padding:6px 8px;">Depois</button>
-            <button id="sgbstr-lab-btn-confirmar" style="background:#4a9eff; border:none; color:#fff; border-radius:4px; font-size:12px; font-weight:600; cursor:pointer; padding:6px 12px;">Confirmar</button>
-        </div>
+            style="width:100%; box-sizing:border-box; padding:10px 11px; border-radius:6px; border:1px solid #323848; background:#0f1115; color:#e6e8eb; font-size:14px; margin-bottom:6px; outline:none;">
+        <div id="sgbstr-lab-erro-cras" style="font-size:11.5px; color:#ff6b6b; min-height:14px; margin-bottom:6px;"></div>
+        <button id="sgbstr-lab-btn-confirmar" style="width:100%; background:#4a9eff; border:none; color:#071018; font-weight:700; font-size:13.5px; border-radius:7px; padding:10px 12px; cursor:pointer;">Confirmar</button>
     `;
-    document.body.appendChild(caixa);
+    moldura.appendChild(caixa);
+    document.body.appendChild(moldura);
 
     const input = document.getElementById('sgbstr-lab-input-cras');
-    const remover = () => caixa.remove();
+    const erroEl = document.getElementById('sgbstr-lab-erro-cras');
+    const remover = () => moldura.remove();
 
-    // "Depois" NÃO marca crasJaPerguntado — volta a aparecer na próxima
-    // navegação, até alguém responder de verdade (é adiável, não descartável).
-    document.getElementById('sgbstr-lab-btn-depois').addEventListener('click', remover);
-
+    // Sem botão "Depois": só fecha digitando e confirmando um CRAS de
+    // verdade — volta a aparecer em toda navegação até alguém responder.
     const confirmar = async () => {
         const valor = input.value.trim().toUpperCase();
-        if (!valor) return;
+        if (!valor) {
+            erroEl.textContent = 'Digite o nome do CRAS pra continuar.';
+            input.focus();
+            return;
+        }
         try {
             await fetch(`${SUPABASE_URL}/rest/v1/rpc/informar_cras_maquina`, {
                 method: 'POST',
@@ -163,6 +178,7 @@ function mostrarAvisoCras(idMaquina, idInstalacao) {
     };
     document.getElementById('sgbstr-lab-btn-confirmar').addEventListener('click', confirmar);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmar(); });
+    input.addEventListener('input', () => { erroEl.textContent = ''; });
 }
 
 let idAtendimentoAtual = null;
