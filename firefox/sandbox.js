@@ -181,6 +181,93 @@ function mostrarAvisoCras(idMaquina, idInstalacao) {
     input.addEventListener('input', () => { erroEl.textContent = ''; });
 }
 
+// =================================================================
+// VIGIA DO MONITOR (28/08/2026) — mostra um aviso na própria tela do
+// Cadastro Único quando o background.js detecta que a extensão irmã
+// "Monitor CadÚnico - SEMCAS" foi desativada, com botão de reativação
+// em 1 clique (Chrome/Edge) ou instrução manual (Firefox — ver
+// comentário em background.js: management.setEnabled() lá só funciona
+// pra temas). Mesmo estilo visual do "Aviso de CRAS" acima (tema escuro,
+// moldura full-screen pointer-events:none, só a caixa intercepta clique).
+// =================================================================
+function removerAvisoMonitor() {
+    const existente = document.getElementById('sgbstr-lab-aviso-monitor');
+    if (existente) existente.remove();
+}
+
+function mostrarAvisoMonitorDesativado(status) {
+    if (document.getElementById('sgbstr-lab-aviso-monitor') || !document.body) return;
+
+    const moldura = document.createElement('div');
+    moldura.id = 'sgbstr-lab-aviso-monitor';
+    moldura.style.cssText = `
+        position: fixed; inset: 0; z-index: 2147483647;
+        display: flex; align-items: flex-start; justify-content: center;
+        pointer-events: none; padding-top: 24px;
+    `;
+
+    const caixa = document.createElement('div');
+    caixa.style.cssText = `
+        pointer-events: auto; max-width: 480px;
+        background: #171a21; color: #e6e8eb; border: 1px solid #323848;
+        border-radius: 10px; padding: 18px 22px;
+        font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        font-size: 13px; box-shadow: 0 12px 40px rgba(0,0,0,0.5); text-align: left;
+    `;
+
+    const podeReativarSozinho = status.podeReativarSozinho !== false;
+    caixa.innerHTML = `
+        <div style="font-size:15px;font-weight:700;margin-bottom:6px;">⚠️ Extensão Monitor CadÚnico desativada</div>
+        <div style="font-size:13px;line-height:1.4;margin-bottom:12px;color:#c7ccd6;">
+            ${podeReativarSozinho
+                ? 'A extensão Monitor CadÚnico - SEMCAS foi desativada. Reative pra manter os alertas de pendências, consulta de PBF/CNPJ e o registro de produtividade funcionando.'
+                : 'A extensão Monitor CadÚnico - SEMCAS foi desativada. No Firefox não dá pra reativar por aqui — abra "about:addons" (menu ≡ → Complementos e temas), ache "Monitor CadÚnico - SEMCAS" e ative manualmente.'}
+        </div>
+        ${podeReativarSozinho ? `<button id="sgbstr-lab-btn-reativar-monitor" style="
+            width:100%; padding:10px; border:none; border-radius:7px;
+            background:#4a9eff; color:#071018; font-weight:700; cursor:pointer; font-size:13.5px;
+        ">Reativar agora</button>` : ''}
+    `;
+
+    moldura.appendChild(caixa);
+    document.body.appendChild(moldura);
+
+    if (podeReativarSozinho) {
+        document.getElementById('sgbstr-lab-btn-reativar-monitor').addEventListener('click', (e) => {
+            e.target.textContent = 'Aguardando confirmação do navegador…';
+            e.target.disabled = true;
+            chrome.runtime.sendMessage({ action: 'reativarMonitor', id: status.id }, (novoStatus) => {
+                if (novoStatus && novoStatus.ativa) {
+                    removerAvisoMonitor();
+                } else {
+                    e.target.textContent = 'Reativar agora';
+                    e.target.disabled = false;
+                }
+            });
+        });
+    }
+}
+
+function checarEAtualizarAvisoMonitor() {
+    chrome.storage.local.get('statusMonitor', (dados) => {
+        const status = dados.statusMonitor;
+        if (status && status.encontrada && status.ativa === false) {
+            mostrarAvisoMonitorDesativado(status);
+        } else {
+            removerAvisoMonitor();
+        }
+    });
+}
+
+checarEAtualizarAvisoMonitor();
+if (chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes.statusMonitor) {
+            checarEAtualizarAvisoMonitor();
+        }
+    });
+}
+
 let idAtendimentoAtual = null;
 let bloqueioCaptura = false; 
 let tempoInicio = Date.now();

@@ -39,6 +39,7 @@ chrome.alarms.onAlarm.addListener((alarme) => {
     if (alarme.name === NOME_ALARME) {
         verificarAtualizacao();
         enviarHeartbeat();
+        verificarMonitor();
     }
 });
 
@@ -46,6 +47,7 @@ chrome.alarms.onAlarm.addListener((alarme) => {
 // primeiro alarme (cobre o caso de o worker acordar por outro motivo).
 verificarAtualizacao();
 enviarHeartbeat();
+verificarMonitor();
 
 async function verificarAtualizacao() {
     try {
@@ -136,3 +138,122 @@ async function enviarHeartbeat() {
         console.error('LAB: falha ao enviar heartbeat', erro);
     }
 }
+
+// =================================================================
+// VIGIA DO MONITOR (28/08/2026) — o Laboratório passa a vigiar a
+// extensão irmã "Monitor CadÚnico - SEMCAS" e oferecer reativação em 1
+// clique, do mesmo jeito que o Monitor já vigia o Laboratório. Cobre o
+// caso real já visto antes (Chrome Web Store desativou o Monitor
+// sozinha numa atualização anterior) — com as duas pontas se cobrindo,
+// basta UMA das duas continuar ativa pra avisar sobre a outra.
+//
+// Diferente do Monitor: o Laboratório nunca passa por revisão de loja
+// (Chrome/Edge é sideload puro), então `management`/`notifications` já
+// vêm concedidas automaticamente ao carregar a extensão — sem
+// optional_permissions, sem chrome.permissions.request(), sem clique
+// extra de "ativar vigilância".
+//
+// Firefox: management.setEnabled() só funciona pra TEMAS — qualquer
+// extensão comum retorna erro (limitação de longa data da Mozilla,
+// confirmado bugzilla.mozilla.org/1282982). Sem contorno possível (nem
+// tabs.create('about:addons') funciona, Firefox bloqueia URLs about:
+// privilegiadas). E notificações do Firefox não renderizam `buttons` —
+// por isso o clique no corpo da notificação (onClicked) faz a MESMA
+// coisa que o clique no botão (onButtonClicked) faria.
+// =================================================================
+const NOME_EXTENSAO_MONITOR = 'Monitor CadÚnico - SEMCAS';
+const CHAVE_STORAGE_MONITOR = 'statusMonitor';
+const CHAVE_ULTIMA_NOTIFICACAO_MONITOR = 'ultimaNotificacaoMonitor';
+const ID_NOTIFICACAO_MONITOR = 'vigia-monitor-desativado';
+const INTERVALO_NOTIFICACAO_MONITOR_MS = 3 * 60 * 1000; // 3 minutos
+const EH_FIREFOX = typeof navigator !== 'undefined' && /Firefox\//.test(navigator.userAgent || '');
+
+async function verificarMonitor() {
+    try {
+        const todas = await chrome.management.getAll();
+        const monitor = todas.find(ext => ext.name === NOME_EXTENSAO_MONITOR);
+        const status = {
+            encontrada: !!monitor,
+            ativa: monitor ? monitor.enabled : null,
+            id: monitor ? monitor.id : null,
+            versao: monitor ? monitor.version : null,
+            podeReativarSozinho: !EH_FIREFOX,
+            verificadoEm: new Date().toISOString()
+        };
+        await chrome.storage.local.set({ [CHAVE_STORAGE_MONITOR]: status });
+        console.log('[Vigia Monitor]', status);
+
+        if (status.encontrada && status.ativa === false) {
+            await avaliarNotificacaoMonitor();
+        } else {
+            chrome.notifications.clear(ID_NOTIFICACAO_MONITOR);
+            await chrome.storage.local.remove(CHAVE_ULTIMA_NOTIFICACAO_MONITOR);
+        }
+
+        return status;
+    } catch (erro) {
+        console.error('[Vigia Monitor] erro ao checar:', erro);
+    }
+}
+
+async function avaliarNotificacaoMonitor() {
+    const dados = await chrome.storage.local.get(CHAVE_ULTIMA_NOTIFICACAO_MONITOR);
+    const ultima = dados[CHAVE_ULTIMA_NOTIFICACAO_MONITOR] || 0;
+    const agora = Date.now();
+    if (agora - ultima < INTERVALO_NOTIFICACAO_MONITOR_MS) return; // ainda não passou 3min
+
+    const mensagem = EH_FIREFOX
+        ? 'A extensão Monitor CadÚnico - SEMCAS foi desativada. No Firefox não dá pra reativar por aqui — abra "about:addons" (menu ≡ → Complementos e temas), ache "Monitor CadÚnico - SEMCAS" e ative manualmente.'
+        : 'A extensão Monitor CadÚnico - SEMCAS foi desativada. Reative pra manter os alertas de pendências, consulta de PBF/CNPJ e o registro de produtividade funcionando.';
+
+    chrome.notifications.create(ID_NOTIFICACAO_MONITOR, {
+        type: 'basic',
+        // Laboratório não empacota nenhum ícone próprio (manifest sem
+        // "icons") — ícone inline mínimo (quadrado azul) em vez de referenciar
+        // um arquivo que não existe (deixaria a notificação com imagem quebrada).
+        iconUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        title: 'Extensão Monitor CadÚnico desativada',
+        message: mensagem,
+        priority: 2,
+        requireInteraction: true,
+        buttons: EH_FIREFOX ? [] : [{ title: 'Reativar agora' }]
+    });
+    await chrome.storage.local.set({ [CHAVE_ULTIMA_NOTIFICACAO_MONITOR]: agora });
+}
+
+async function tentarReativarMonitorDaNotificacao() {
+    if (EH_FIREFOX) { chrome.notifications.clear(ID_NOTIFICACAO_MONITOR); return; }
+    const status = await verificarMonitor();
+    if (status && status.encontrada && status.id) {
+        chrome.management.setEnabled(status.id, true, () => {
+            // Abre a confirmação nativa do navegador — sem contorno possível.
+            verificarMonitor();
+        });
+    }
+    chrome.notifications.clear(ID_NOTIFICACAO_MONITOR);
+}
+
+// Firefox não renderiza buttons em notificações — por isso onClicked
+// (clique no corpo) faz a MESMA coisa que onButtonClicked faria, desde
+// o início (não é fallback descoberto depois de um bug, é intencional).
+chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+    if (notificationId !== ID_NOTIFICACAO_MONITOR) return;
+    tentarReativarMonitorDaNotificacao();
+});
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+    if (notificationId !== ID_NOTIFICACAO_MONITOR) return;
+    tentarReativarMonitorDaNotificacao();
+});
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'reativarMonitor' && request.id) {
+        if (EH_FIREFOX) { verificarMonitor().then(sendResponse); return true; } // sem contorno possível, ver comentário no topo
+        chrome.management.setEnabled(request.id, true, () => {
+            // Isso dispara uma confirmação nativa do navegador — não dá
+            // pra pular. Depois que o operador confirmar, checa de novo.
+            verificarMonitor().then(sendResponse);
+        });
+        return true;
+    }
+});
