@@ -203,7 +203,7 @@ async function avaliarNotificacaoMonitor() {
     if (agora - ultima < INTERVALO_NOTIFICACAO_MONITOR_MS) return; // ainda não passou 3min
 
     const mensagem = EH_FIREFOX
-        ? 'A extensão Monitor CadÚnico - SEMCAS foi desativada. No Firefox não dá pra reativar por aqui — abra "about:addons" (menu ≡ → Complementos e temas), ache "Monitor CadÚnico - SEMCAS" e ative manualmente.'
+        ? 'A extensão Monitor CadÚnico - SEMCAS foi desativada. No Firefox não dá pra reativar por aqui — abra "about:addons" (menu ≡ → Extensões e temas), ache "Monitor CadÚnico - SEMCAS" e ative manualmente.'
         : 'A extensão Monitor CadÚnico - SEMCAS foi desativada. Reative pra manter os alertas de pendências, consulta de PBF/CNPJ e o registro de produtividade funcionando.';
 
     chrome.notifications.create(ID_NOTIFICACAO_MONITOR, {

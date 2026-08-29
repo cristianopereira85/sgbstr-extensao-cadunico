@@ -221,7 +221,7 @@ function mostrarAvisoMonitorDesativado(status) {
         <div style="font-size:13px;line-height:1.4;margin-bottom:12px;color:#c7ccd6;">
             ${podeReativarSozinho
                 ? 'A extensão Monitor CadÚnico - SEMCAS foi desativada. Reative pra manter os alertas de pendências, consulta de PBF/CNPJ e o registro de produtividade funcionando.'
-                : 'A extensão Monitor CadÚnico - SEMCAS foi desativada. No Firefox não dá pra reativar por aqui — abra "about:addons" (menu ≡ → Complementos e temas), ache "Monitor CadÚnico - SEMCAS" e ative manualmente.'}
+                : 'A extensão Monitor CadÚnico - SEMCAS foi desativada. No Firefox não dá pra reativar por aqui — abra "about:addons" (menu ≡ → Extensões e temas), ache "Monitor CadÚnico - SEMCAS" e ative manualmente.'}
         </div>
         ${podeReativarSozinho ? `<button id="sgbstr-lab-btn-reativar-monitor" style="
             width:100%; padding:10px; border:none; border-radius:7px;
