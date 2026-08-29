@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CadúnicoSLZ",
-  "version": "0.6.6",
+  "version": "0.6.3",
   "description": "Registra o histórico completo do atendimento no Cadastro Único, preservando a jornada e as respostas do sistema.",
   "permissions": ["storage", "tabs", "alarms", "management", "notifications"],
   "host_permissions": [
