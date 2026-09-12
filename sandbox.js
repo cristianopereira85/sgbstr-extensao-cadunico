@@ -248,11 +248,160 @@ function mostrarAvisoMonitorDesativado(status) {
     }
 }
 
+// =================================================================
+// AVISO DE EXTENSÃO AUSENTE (11/09/2026) — diferente do "desativada"
+// acima (que o Laboratório resolve sozinho via chrome.management, com
+// confirmação nativa), não existe NENHUMA API de navegador que permita
+// uma extensão instalar outra — bloqueio de segurança proposital do
+// Chromium, sem contorno possível. Mas instalar o MONITOR de novo (esse
+// aviso é só pro caso "Monitor ausente" — o inverso, "Laboratório
+// ausente", é sideload/unpacked, bem mais manual, sem link de 1-clique)
+// é fácil: ele é publicado na Chrome Web Store (funciona também no Edge,
+// que aceita extensões da CWS) e tem .xpi assinado no Firefox — dá pra
+// dar o link direto em vez de só pedir pra avisar a gestão. Registrado
+// em avisos_extensao_ausente (throttle de 1x/dia por navegador) pra dar
+// visibilidade de quem já viu o aviso e o Monitor continua faltando.
+// =================================================================
+const LINK_MONITOR_CHROME_WEBSTORE = 'https://chromewebstore.google.com/detail/monitor-cad%C3%BAnico-semcas/fekcbjgeoimacbdhljmkklfhlapejamn';
+const LINK_MONITOR_FIREFOX_XPI = 'https://vxinqteushefztszmhdb.supabase.co/storage/v1/object/public/Extensao%20Cadunico%20Firefox/53e2473cbd4f4a4c96e8-1.8.4.xpi';
+
+function detectarNavegadorInstalacao() {
+    const ua = navigator.userAgent || '';
+    if (/Firefox\//.test(ua)) return 'firefox';
+    if (/Edg\//.test(ua)) return 'edge'; // tem que vir ANTES do teste de Chrome — UA do Edge também contém "Chrome/"
+    return 'chrome';
+}
+
+// Injeta 1x a keyframe do ícone piscando — banner é criado/removido várias
+// vezes (a cada checagem de 2min), mas a <style> só precisa existir 1x na
+// página.
+function garantirEstiloPiscarAlerta() {
+    if (document.getElementById('sgbstr-lab-estilo-piscar')) return;
+    const estilo = document.createElement('style');
+    estilo.id = 'sgbstr-lab-estilo-piscar';
+    estilo.textContent = `@keyframes sgbstrPiscarAlerta { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }`;
+    document.head.appendChild(estilo);
+}
+
+function mostrarAvisoMonitorAusente() {
+    if (document.getElementById('sgbstr-lab-aviso-monitor') || !document.body) return;
+    garantirEstiloPiscarAlerta();
+
+    // Centralizado na tela (não só no topo) e com ícone piscando —
+    // pedido do Cristiano (11/09/2026): esse aviso precisa ser bem mais
+    // chamativo que o de "desativada" acima. Diferente daquele, este AGORA
+    // tem um botão de ação (instalar o Monitor de novo) — mas o clique
+    // final ("Usar no Chrome"/"Adicionar", ou a confirmação do Firefox)
+    // ainda depende do operador, por isso a instrução deixa claro o que
+    // fazer depois de abrir o link, e mantém "avise a gestão" como saída
+    // de reserva pra quem não conseguir sozinho (política do órgão pode
+    // bloquear instalação de extensão em algumas máquinas).
+    const navegador = detectarNavegadorInstalacao();
+    const config = {
+        chrome: {
+            link: LINK_MONITOR_CHROME_WEBSTORE,
+            botao: 'Abrir a Chrome Web Store',
+            instrucao: 'Clique no botão abaixo. Na página que abrir, clique em <b>"Usar no Chrome"</b> (ou "Adicionar ao Chrome") pra instalar.'
+        },
+        edge: {
+            link: LINK_MONITOR_CHROME_WEBSTORE,
+            botao: 'Abrir a página da extensão',
+            instrucao: 'Clique no botão abaixo. O Edge pode pedir uma permissão extra ("Permitir extensões de outras lojas") antes de mostrar o botão de instalar — confirme e clique nele.'
+        },
+        firefox: {
+            link: LINK_MONITOR_FIREFOX_XPI,
+            botao: 'Instalar o Monitor agora',
+            instrucao: 'Clique no botão abaixo — o Firefox já reconhece o arquivo e vai perguntar se quer instalar. É só confirmar.'
+        }
+    }[navegador];
+
+    const moldura = document.createElement('div');
+    moldura.id = 'sgbstr-lab-aviso-monitor';
+    moldura.style.cssText = `
+        position: fixed; inset: 0; z-index: 2147483647;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: none;
+    `;
+
+    const caixa = document.createElement('div');
+    // max-height + overflow-y ficam como rede de segurança (nunca custa
+    // nada e cobre qualquer tela/zoom fora do comum), mas a decisão de
+    // 12/09/2026 foi trocar a lista de 5 itens por 1 parágrafo só — a
+    // maioria dos operadores não ia rolar pra baixo pra achar o botão de
+    // instalar, então melhor um texto mais curto que cabe inteiro sem
+    // precisar de scroll na maioria das telas.
+    caixa.style.cssText = `
+        pointer-events: auto; max-width: 460px; max-height: 90vh; overflow-y: auto;
+        background: #171a21; color: #e6e8eb; border: 2px solid #ffd23f;
+        border-radius: 12px; padding: 26px 28px;
+        font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        font-size: 14px; box-shadow: 0 16px 48px rgba(0,0,0,0.6); text-align: center;
+        box-sizing: border-box;
+    `;
+    caixa.innerHTML = `
+        <div style="font-size:40px; line-height:1; animation: sgbstrPiscarAlerta 1s ease-in-out infinite; margin-bottom:10px;">⚠️</div>
+        <div style="font-size:17px;font-weight:700;margin-bottom:10px;">Extensão Monitor CadÚnico não está instalada</div>
+        <div style="font-size:13.5px;line-height:1.5;color:#e6e8eb;text-align:left;margin-bottom:12px;">
+            Sabia que sem o Monitor você não vê a visita do APP de Visitas, o status do Bolsa Família,
+            os prazos de Revisão/Averiguação nem os avisos de SICON e Integração de Dados? Tudo isso
+            aparece direto na tela, só com ele instalado.
+        </div>
+        <div style="font-size:13.5px;line-height:1.5;color:#93989f;text-align:left;margin-bottom:16px;">
+            ${config.instrucao}
+        </div>
+        <a href="${config.link}" target="_blank" rel="noopener" style="
+            display:block; width:100%; box-sizing:border-box; padding:11px; border-radius:8px;
+            background:#4a9eff; color:#071018; font-weight:700; font-size:13.5px;
+            text-decoration:none; text-align:center; margin-bottom:12px;
+        ">${config.botao}</a>
+        <div style="font-size:12px;line-height:1.4;color:#8a8f99;text-align:left;">
+            Não conseguiu instalar sozinho? Avise a gestão do Cadastro Único (Nilton ou Cristiano).
+        </div>
+    `;
+
+    moldura.appendChild(caixa);
+    document.body.appendChild(moldura);
+}
+
+// Throttle de 1 registro/dia por navegador, pra não encher a tabela a cada
+// checagem de 2min do background.js — só interessa saber que o operador
+// já viu o aviso naquele dia, não quantas vezes a página recarregou.
+async function registrarAvisoMonitorAusenteSeNecessario() {
+    const CHAVE = 'ultimoRegistroAvisoMonitorAusente';
+    const hoje = new Date().toISOString().slice(0, 10);
+    const dados = await chrome.storage.local.get(CHAVE);
+    if (dados[CHAVE] === hoje) return; // já registrado hoje
+
+    try {
+        const idMaquina = await obterIdMaquina();
+        const configMaquina = await obterConfigMaquina();
+        await fetch(`${SUPABASE_URL}/rest/v1/avisos_extensao_ausente`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+            body: JSON.stringify({
+                extensao_que_avisou: 'laboratorio',
+                extensao_ausente: 'monitor',
+                sessao_navegador: sessaoNavegador,
+                id_maquina: idMaquina,
+                id_instalacao: configMaquina.idInstalacao,
+                cras_config: configMaquina.cras
+            })
+        });
+        await chrome.storage.local.set({ [CHAVE]: hoje });
+        console.log('LAB: aviso de Monitor ausente registrado (1x/dia)');
+    } catch (erro) {
+        console.error('LAB: falha ao registrar aviso de Monitor ausente', erro);
+    }
+}
+
 function checarEAtualizarAvisoMonitor() {
     chrome.storage.local.get('statusMonitor', (dados) => {
         const status = dados.statusMonitor;
         if (status && status.encontrada && status.ativa === false) {
             mostrarAvisoMonitorDesativado(status);
+        } else if (status && status.encontrada === false) {
+            mostrarAvisoMonitorAusente();
+            registrarAvisoMonitorAusenteSeNecessario();
         } else {
             removerAvisoMonitor();
         }
