@@ -38,16 +38,22 @@ function agendarVerificacao() {
 chrome.alarms.onAlarm.addListener((alarme) => {
     if (alarme.name === NOME_ALARME) {
         verificarAtualizacao();
-        enviarHeartbeat();
-        verificarMonitor();
+        rodarCicloMonitorEHeartbeat();
     }
 });
 
 // Roda uma vez já na inicialização do service worker, sem esperar o
 // primeiro alarme (cobre o caso de o worker acordar por outro motivo).
 verificarAtualizacao();
-enviarHeartbeat();
-verificarMonitor();
+rodarCicloMonitorEHeartbeat();
+
+// Checa o Monitor UMA vez por ciclo (chrome.management.getAll()) e reaproveita
+// o resultado tanto pro aviso na tela quanto pro heartbeat — em vez de checar
+// duas vezes (13/09/2026, ver "Status do Monitor via heartbeat" no CLAUDE.md).
+async function rodarCicloMonitorEHeartbeat() {
+    const statusMonitor = await verificarMonitor();
+    await enviarHeartbeat(statusMonitor);
+}
 
 async function verificarAtualizacao() {
     try {
@@ -106,7 +112,13 @@ function coletarFingerprintBasico() {
     }
 }
 
-async function enviarHeartbeat() {
+// statusMonitor vem de verificarMonitor() (chamado 1x por ciclo em
+// rodarCicloMonitorEHeartbeat) — inclui o status do Monitor no MESMO POST de
+// heartbeat, sem request nova nem alarme novo (13/09/2026, ver "Status do
+// Monitor via heartbeat" no CLAUDE.md). statusMonitor pode vir undefined
+// (ex: chamada avulsa) — nesse caso os 3 campos vão null, o que já é o
+// comportamento esperado pra heartbeat de versão antiga.
+async function enviarHeartbeat(statusMonitor) {
     try {
         const idMaquina = await obterIdMaquina();
         const configMaquina = await obterConfigMaquina();
@@ -126,7 +138,10 @@ async function enviarHeartbeat() {
                 fingerprint_navegador: coletarFingerprintBasico(),
                 ultimo_heartbeat: agora,
                 id_instalacao: configMaquina.idInstalacao,
-                cras_config: configMaquina.cras
+                cras_config: configMaquina.cras,
+                monitor_encontrado: statusMonitor ? statusMonitor.encontrada : null,
+                monitor_ativo: statusMonitor ? statusMonitor.ativa : null,
+                monitor_versao: statusMonitor ? statusMonitor.versao : null
             })
         });
         if (res.ok) {
