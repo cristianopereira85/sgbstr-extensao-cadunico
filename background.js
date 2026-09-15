@@ -141,7 +141,8 @@ async function enviarHeartbeat(statusMonitor) {
                 cras_config: configMaquina.cras,
                 monitor_encontrado: statusMonitor ? statusMonitor.encontrada : null,
                 monitor_ativo: statusMonitor ? statusMonitor.ativa : null,
-                monitor_versao: statusMonitor ? statusMonitor.versao : null
+                monitor_versao: statusMonitor ? statusMonitor.versao : null,
+                monitor_erro: statusMonitor ? (statusMonitor.erro || null) : null
             })
         });
         if (res.ok) {
@@ -207,7 +208,24 @@ async function verificarMonitor() {
 
         return status;
     } catch (erro) {
+        // Antes (até v0.6.8): erro só ia pro console do service worker —
+        // invisível pra sempre em ~80 máquinas remotas. Agora devolve um
+        // status com o erro pra viajar junto no heartbeat (ver
+        // enviarHeartbeat/monitor_erro), permitindo diagnosticar remoto
+        // por que chrome.management.getAll() falha nessas máquinas (ex:
+        // bloqueio de política corporativa) sem precisar inspecionar cada
+        // uma ao vivo. 15/09/2026, achado: ~78% do Chrome falhava aqui,
+        // silenciosamente, enquanto Edge/Firefox majoritariamente não.
+        const mensagemErro = erro && erro.message ? erro.message : String(erro);
         console.error('[Vigia Monitor] erro ao checar:', erro);
+        return {
+            encontrada: null,
+            ativa: null,
+            id: null,
+            versao: null,
+            erro: mensagemErro,
+            verificadoEm: new Date().toISOString()
+        };
     }
 }
 
