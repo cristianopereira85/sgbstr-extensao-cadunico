@@ -60,22 +60,49 @@ if ($configAtual -and -not [string]::IsNullOrWhiteSpace($configAtual.cras)) {
     Write-Output ""
     Write-Output "=================================================================="
     Write-Output " Qual e o CRAS/unidade desta maquina?"
-    Write-Output " (obrigatorio - exemplos: ANIL, COHAB, TURU, BAIRRO DE FATIMA,"
-    Write-Output " SEDE DA SEMCAS, CENTRO POP CENTRO)"
     Write-Output "=================================================================="
-    $cras = ""
-    while ([string]::IsNullOrWhiteSpace($cras)) {
-        $cras = Read-Host "Digite o nome do CRAS/unidade"
-        if ([string]::IsNullOrWhiteSpace($cras)) {
-            Write-Output "Nao pode ficar em branco - digite o nome do CRAS/unidade."
-        }
+    # Lista fechada (16/09/2026) em vez de texto livre - antes era Read-Host
+    # sem nenhuma validacao, o que gerou 5 maquinas com CRAS errado (Anil 6,
+    # Turu 5, Bacanga 6, Liberdade 8, Centro 11 - ver CLAUDE.md). Precisa
+    # bater com unidades_cras_validas no Supabase e com UNIDADES_CRAS em
+    # sandbox.js (nenhum dos dois le a tabela ao vivo, sincronizar a mao se
+    # abrir CRAS novo). Maquina de TESTE (ex: "Casa Cristiano") nao se
+    # nomeia aqui - digite 0 e responda pelo aviso na tela do Cadastro
+    # Unico, que tem o codigo de acesso (este script roda offline, sem
+    # rede, entao nao da pra validar o codigo aqui).
+    $unidades = @(
+        "ANIL", "ANJO DA GUARDA", "BACANGA", "BAIRRO DE FATIMA", "BEQUIMAO", "CENTRO",
+        "CENTRO POP CENTRO", "CENTRO POP COHAB", "CIDADE OLIMPICA", "CIDADE OPERARIA",
+        "COHAB", "COROADINHO", "ESTIVA", "JANAINA", "JOAO DE DEUS", "LIBERDADE",
+        "MARACANA", "SAO FRANCISCO", "SAO RAIMUNDO", "SEDE DA SEMCAS", "TURU",
+        "VILA NOVA", "VINHAIS"
+    )
+    for ($i = 0; $i -lt $unidades.Count; $i++) {
+        Write-Output ("  {0,2}) {1}" -f ($i + 1), $unidades[$i])
     }
-    $cras = $cras.Trim().ToUpper()
+    Write-Output "   0) Nao sei agora / e maquina de teste - definir depois pelo navegador"
+    Write-Output ""
+
+    $cras = $null
+    while ($true) {
+        $entrada = Read-Host "Digite o numero"
+        if ($entrada -eq "0") { break }
+        $numero = 0
+        if ([int]::TryParse($entrada, [ref]$numero) -and $numero -ge 1 -and $numero -le $unidades.Count) {
+            $cras = $unidades[$numero - 1]
+            break
+        }
+        Write-Output ("Numero invalido - digite de 0 a {0}." -f $unidades.Count)
+    }
 
     $configObj = @{ id_instalacao = $idInstalacao; cras = $cras }
     $configObj | ConvertTo-Json | Set-Content -Path $configPath -Encoding utf8
 
-    Write-Output "OK: maquina identificada como '$cras' (id_instalacao $idInstalacao)."
+    if ($cras) {
+        Write-Output "OK: maquina identificada como '$cras' (id_instalacao $idInstalacao)."
+    } else {
+        Write-Output "OK: id_instalacao gravado ($idInstalacao) - a unidade sera perguntada na tela do Cadastro Unico na primeira navegacao."
+    }
 }
 
 $nomeTarefa = "SGBSTR - Atualizar Extensao CadUnico"

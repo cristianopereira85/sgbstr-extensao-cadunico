@@ -114,6 +114,22 @@ async function obterConfigMaquina() {
     }
 })();
 
+// Lista fechada de unidades reais (16/09/2026) — precisa bater com
+// unidades_cras_validas no Supabase e com o menu numerado de
+// configurar-auto-atualizacao.ps1. Antes disso o campo era texto livre
+// sem validação nenhuma — foi assim que 5 máquinas ficaram com CRAS
+// errado (Anil 6, Turu 5, Bacanga 6, Liberdade 8, Centro 11), todas sem
+// id_instalacao (fora do config_maquina.json, ou Firefox — que nunca
+// consegue ler esse arquivo). Nenhuma API de extensão lê essa tabela ao
+// vivo, então precisa manter esta lista em sincronia manual.
+const UNIDADES_CRAS = [
+    'ANIL', 'ANJO DA GUARDA', 'BACANGA', 'BAIRRO DE FATIMA', 'BEQUIMAO', 'CENTRO',
+    'CENTRO POP CENTRO', 'CENTRO POP COHAB', 'CIDADE OLIMPICA', 'CIDADE OPERARIA',
+    'COHAB', 'COROADINHO', 'ESTIVA', 'JANAINA', 'JOAO DE DEUS', 'LIBERDADE',
+    'MARACANA', 'SAO FRANCISCO', 'SAO RAIMUNDO', 'SEDE DA SEMCAS', 'TURU',
+    'VILA NOVA', 'VINHAIS'
+];
+
 function mostrarAvisoCras(idMaquina, idInstalacao) {
     if (document.getElementById('sgbstr-lab-aviso-cras') || !document.body) return;
 
@@ -138,47 +154,212 @@ function mostrarAvisoCras(idMaquina, idInstalacao) {
         font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
         font-size: 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.5);
     `;
+    // Lista fechada em vez de texto livre — só deixa confirmar escolhendo
+    // um item real. "Tenho um código de acesso" só aparece quando a busca
+    // não bate com nenhuma unidade (link discreto, não atrapalha o uso
+    // normal) e libera um campo de nome livre pra máquina de TESTE (ex:
+    // "Casa Cristiano") — validado no servidor via
+    // validar_codigo_maquina_teste/nomear_maquina_teste; o código em si
+    // nunca fica escrito aqui, mora só no Vault do Supabase.
     caixa.innerHTML = `
         <div style="font-size:12px; color:#8a8f99; font-weight:600; margin-bottom:10px;">Laboratório CadÚnico</div>
         <div style="font-size:17px; font-weight:700; margin-bottom:6px;">Em que CRAS você está?</div>
-        <div style="font-size:12.5px; color:#8a8f99; margin-bottom:14px; line-height:1.5;">Preciso saber a unidade desta máquina pra contar certo na produção do dia. Só apareço 1 vez.</div>
-        <input id="sgbstr-lab-input-cras" type="text" placeholder="Ex: ANIL, COHAB, TURU..."
-            style="width:100%; box-sizing:border-box; padding:10px 11px; border-radius:6px; border:1px solid #323848; background:#0f1115; color:#e6e8eb; font-size:14px; margin-bottom:6px; outline:none;">
+        <div style="font-size:12.5px; color:#8a8f99; margin-bottom:14px; line-height:1.5;">Preciso saber a unidade desta máquina pra contar certo na produção do dia. Escolha da lista abaixo.</div>
+        <div style="position:relative;">
+            <input id="sgbstr-lab-input-cras" type="text" placeholder="Digite pra buscar..." autocomplete="off"
+                style="width:100%; box-sizing:border-box; padding:10px 11px; border-radius:6px; border:1px solid #323848; background:#0f1115; color:#e6e8eb; font-size:14px; margin-bottom:6px; outline:none;">
+            <div id="sgbstr-lab-lista-cras" style="display:none; position:absolute; top:calc(100% + 2px); left:0; right:0; z-index:5; max-height:150px; overflow-y:auto; border-radius:8px; background:#0f1115; border:1px solid #323848; box-shadow:0 10px 24px rgba(0,0,0,.4);"></div>
+        </div>
+        <div id="sgbstr-lab-escolhido" style="display:none; align-items:center; gap:6px; font-size:11.5px; color:#7cd6a0; margin-bottom:6px;">✓ <span id="sgbstr-lab-escolhido-nome"></span> selecionado</div>
+        <div id="sgbstr-lab-secreto-1" style="display:none; flex-direction:column; gap:6px; margin-bottom:8px;">
+            <input id="sgbstr-lab-input-codigo" type="password" placeholder="Código de acesso" autocomplete="off"
+                style="width:100%; box-sizing:border-box; padding:8px 10px; border-radius:6px; border:1px solid #323848; background:#0f1115; color:#e6e8eb; font-size:12.5px; outline:none;">
+            <button id="sgbstr-lab-btn-validar-codigo" type="button" style="align-self:flex-start; background:none; border:1px solid #323848; color:#e6e8eb; font-size:11px; padding:5px 10px; border-radius:6px; cursor:pointer;">Validar código</button>
+            <div id="sgbstr-lab-status-codigo" style="font-size:11px; min-height:14px;"></div>
+        </div>
+        <div id="sgbstr-lab-secreto-2" style="display:none; margin-bottom:8px;">
+            <input id="sgbstr-lab-input-nome-livre" type="text" placeholder="Nome desta máquina (uso restrito)" autocomplete="off"
+                style="width:100%; box-sizing:border-box; padding:9px 10px; border-radius:6px; border:1px solid #323848; background:#0f1115; color:#e6e8eb; font-size:13px; outline:none;">
+        </div>
         <div id="sgbstr-lab-erro-cras" style="font-size:11.5px; color:#ff6b6b; min-height:14px; margin-bottom:6px;"></div>
-        <button id="sgbstr-lab-btn-confirmar" style="width:100%; background:#4a9eff; border:none; color:#071018; font-weight:700; font-size:13.5px; border-radius:7px; padding:10px 12px; cursor:pointer;">Confirmar</button>
+        <button id="sgbstr-lab-btn-confirmar" disabled style="width:100%; background:#4a9eff; border:none; color:#071018; font-weight:700; font-size:13.5px; border-radius:7px; padding:10px 12px; cursor:pointer; opacity:.5;">Confirmar</button>
     `;
     moldura.appendChild(caixa);
     document.body.appendChild(moldura);
 
     const input = document.getElementById('sgbstr-lab-input-cras');
+    const lista = document.getElementById('sgbstr-lab-lista-cras');
+    const escolhidoBox = document.getElementById('sgbstr-lab-escolhido');
+    const escolhidoNome = document.getElementById('sgbstr-lab-escolhido-nome');
+    const secreto1 = document.getElementById('sgbstr-lab-secreto-1');
+    const secreto2 = document.getElementById('sgbstr-lab-secreto-2');
+    const inputCodigo = document.getElementById('sgbstr-lab-input-codigo');
+    const btnValidarCodigo = document.getElementById('sgbstr-lab-btn-validar-codigo');
+    const statusCodigo = document.getElementById('sgbstr-lab-status-codigo');
+    const inputNomeLivre = document.getElementById('sgbstr-lab-input-nome-livre');
     const erroEl = document.getElementById('sgbstr-lab-erro-cras');
+    const btnConfirmar = document.getElementById('sgbstr-lab-btn-confirmar');
     const remover = () => moldura.remove();
 
-    // Sem botão "Depois": só fecha digitando e confirmando um CRAS de
-    // verdade — volta a aparecer em toda navegação até alguém responder.
+    let valorEscolhido = null;
+    let codigoValidado = null; // só setado depois de validar_codigo_maquina_teste responder true
+
+    const habilitarConfirmar = (v) => {
+        btnConfirmar.disabled = !v;
+        btnConfirmar.style.opacity = v ? '1' : '.5';
+    };
+
+    const esconderSegredo = () => {
+        secreto1.style.display = 'none';
+        secreto2.style.display = 'none';
+        inputCodigo.value = '';
+        statusCodigo.textContent = '';
+        codigoValidado = null;
+    };
+
+    const renderLista = (filtro) => {
+        const termo = filtro.toUpperCase();
+        lista.innerHTML = '';
+        if (!termo) { lista.style.display = 'none'; esconderSegredo(); return; }
+        const matches = UNIDADES_CRAS.filter((c) => c.indexOf(termo) !== -1);
+        if (matches.length === 0) {
+            const vazio = document.createElement('div');
+            vazio.style.cssText = 'padding:9px 11px 4px; font-size:12px; color:#8a8f99; font-style:italic;';
+            vazio.textContent = 'Nenhuma unidade encontrada.';
+            const linkSegredo = document.createElement('button');
+            linkSegredo.type = 'button';
+            linkSegredo.textContent = 'Tenho um código de acesso';
+            linkSegredo.style.cssText = 'display:block; width:100%; text-align:left; background:none; border:none; padding:2px 11px 9px; font-size:11px; color:#5b8fd6; cursor:pointer; text-decoration:underline;';
+            linkSegredo.addEventListener('click', () => {
+                lista.style.display = 'none';
+                secreto1.style.display = 'flex';
+                inputCodigo.focus();
+            });
+            lista.appendChild(vazio);
+            lista.appendChild(linkSegredo);
+            lista.style.display = 'block';
+            return;
+        }
+        esconderSegredo();
+        matches.forEach((c) => {
+            const opt = document.createElement('div');
+            opt.textContent = c;
+            opt.style.cssText = 'padding:8px 11px; font-size:12.5px; cursor:pointer; color:#e6e8eb;';
+            opt.addEventListener('mouseenter', () => { opt.style.background = 'rgba(74,158,255,.16)'; });
+            opt.addEventListener('mouseleave', () => { opt.style.background = 'transparent'; });
+            opt.addEventListener('click', () => {
+                input.value = c;
+                valorEscolhido = c;
+                lista.style.display = 'none';
+                escolhidoBox.style.display = 'flex';
+                escolhidoNome.textContent = c;
+                habilitarConfirmar(true);
+                erroEl.textContent = '';
+            });
+            lista.appendChild(opt);
+        });
+        lista.style.display = 'block';
+    };
+
+    input.addEventListener('input', () => {
+        valorEscolhido = null;
+        habilitarConfirmar(false);
+        escolhidoBox.style.display = 'none';
+        erroEl.textContent = '';
+        renderLista(input.value.trim());
+    });
+    input.addEventListener('focus', () => { if (input.value.trim()) renderLista(input.value.trim()); });
+    document.addEventListener('click', (e) => {
+        if (e.target !== input && !lista.contains(e.target)) lista.style.display = 'none';
+    });
+
+    btnValidarCodigo.addEventListener('click', async () => {
+        const codigo = inputCodigo.value.trim();
+        if (!codigo) { statusCodigo.textContent = 'Digite o código.'; statusCodigo.style.color = '#ff6b6b'; return; }
+        statusCodigo.textContent = 'Verificando…';
+        statusCodigo.style.color = '#8a8f99';
+        btnValidarCodigo.disabled = true;
+        try {
+            const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/validar_codigo_maquina_teste`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+                body: JSON.stringify({ p_codigo: codigo })
+            });
+            const valido = resp.ok ? await resp.json() : false;
+            btnValidarCodigo.disabled = false;
+            if (valido) {
+                codigoValidado = codigo;
+                statusCodigo.textContent = 'Código válido ✓';
+                statusCodigo.style.color = '#7cd6a0';
+                secreto1.style.display = 'none';
+                secreto2.style.display = 'block';
+                inputNomeLivre.focus();
+                habilitarConfirmar(true);
+                erroEl.textContent = '';
+            } else {
+                statusCodigo.textContent = 'Código inválido.';
+                statusCodigo.style.color = '#ff6b6b';
+            }
+        } catch (erro) {
+            btnValidarCodigo.disabled = false;
+            statusCodigo.textContent = 'Sem resposta do servidor — tente de novo.';
+            statusCodigo.style.color = '#ff6b6b';
+        }
+    });
+    inputCodigo.addEventListener('keydown', (e) => { if (e.key === 'Enter') btnValidarCodigo.click(); });
+
+    // Sem botão "Depois": só fecha escolhendo uma unidade real (ou
+    // validando o código de acesso) — volta a aparecer em toda navegação
+    // até alguém responder.
     const confirmar = async () => {
-        const valor = input.value.trim().toUpperCase();
-        if (!valor) {
-            erroEl.textContent = 'Digite o nome do CRAS pra continuar.';
-            input.focus();
+        if (codigoValidado && secreto2.style.display !== 'none') {
+            const nomeLivre = inputNomeLivre.value.trim();
+            if (!nomeLivre) {
+                erroEl.textContent = 'Digite um nome pra essa máquina.';
+                inputNomeLivre.focus();
+                return;
+            }
+            try {
+                const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/nomear_maquina_teste`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+                    body: JSON.stringify({ p_id_maquina: idMaquina, p_id_instalacao: idInstalacao, p_codigo: codigoValidado, p_nome: nomeLivre })
+                });
+                const gravou = resp.ok ? await resp.json() : false;
+                if (!gravou) {
+                    erroEl.textContent = 'Não deu pra gravar — confira o código e tente de novo.';
+                    return;
+                }
+                await chrome.storage.local.set({ crasJaPerguntado: true });
+                console.log(`LAB: máquina de teste nomeada via código de acesso -> ${nomeLivre}`);
+            } catch (erro) {
+                console.error('LAB: falha ao nomear máquina de teste', erro);
+                erroEl.textContent = 'Sem resposta do servidor — tente de novo.';
+                return;
+            }
+            remover();
+            return;
+        }
+
+        if (!valorEscolhido) {
+            erroEl.textContent = 'Escolha uma unidade da lista.';
             return;
         }
         try {
             await fetch(`${SUPABASE_URL}/rest/v1/rpc/informar_cras_maquina`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-                body: JSON.stringify({ p_id_maquina: idMaquina, p_id_instalacao: idInstalacao, p_cras: valor })
+                body: JSON.stringify({ p_id_maquina: idMaquina, p_id_instalacao: idInstalacao, p_cras: valorEscolhido })
             });
             await chrome.storage.local.set({ crasJaPerguntado: true });
-            console.log(`LAB: CRAS informado via aviso no navegador -> ${valor}`);
+            console.log(`LAB: CRAS informado via aviso no navegador -> ${valorEscolhido}`);
         } catch (erro) {
             console.error('LAB: falha ao informar CRAS', erro);
         }
         remover();
     };
-    document.getElementById('sgbstr-lab-btn-confirmar').addEventListener('click', confirmar);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmar(); });
-    input.addEventListener('input', () => { erroEl.textContent = ''; });
+    btnConfirmar.addEventListener('click', confirmar);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && valorEscolhido) confirmar(); });
 }
 
 // =================================================================
