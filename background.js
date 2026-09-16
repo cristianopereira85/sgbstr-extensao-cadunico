@@ -51,7 +51,15 @@ rodarCicloMonitorEHeartbeat();
 // o resultado tanto pro aviso na tela quanto pro heartbeat — em vez de checar
 // duas vezes (13/09/2026, ver "Status do Monitor via heartbeat" no CLAUDE.md).
 async function rodarCicloMonitorEHeartbeat() {
-    const statusMonitor = await verificarMonitor();
+    // Rede de segurança extra (16/09/2026): mesmo com o try/catch de dentro
+    // de verificarMonitor(), preferir nunca deixar um heartbeat sair sem
+    // nenhum dado de monitor por causa de um erro imprevisto aqui fora.
+    let statusMonitor;
+    try {
+        statusMonitor = await verificarMonitor();
+    } catch (erro) {
+        statusMonitor = { encontrada: null, ativa: null, id: null, versao: null, erro: 'Erro inesperado fora do try interno: ' + (erro && erro.message ? erro.message : String(erro)) };
+    }
     await enviarHeartbeat(statusMonitor);
 }
 
@@ -184,9 +192,24 @@ const ID_NOTIFICACAO_MONITOR = 'vigia-monitor-desativado';
 const INTERVALO_NOTIFICACAO_MONITOR_MS = 3 * 60 * 1000; // 3 minutos
 const EH_FIREFOX = typeof navigator !== 'undefined' && /Firefox\//.test(navigator.userAgent || '');
 
+// 16/09/2026: achado ao vivo — a mesma máquina física, mesma versão do
+// Laboratório, mostrava Edge funcionando certo e Chrome com TUDO nulo (nem
+// sucesso, nem erro capturado pela correção de 15/09). Isso só faz sentido
+// se chrome.management.getAll() estiver TRAVANDO (nunca resolve nem
+// rejeita) em vez de lançar exceção de verdade — nesse caso o catch nunca
+// roda. Timeout de 5s força uma resposta (erro) em vez de ficar esperando
+// pra sempre, e serve de teste: se o erro reportado virar "timeout...",
+// confirma a hipótese; se continuar nulo mesmo assim, descarta.
+function comTimeout(promessa, ms, mensagemTimeout) {
+    return Promise.race([
+        promessa,
+        new Promise((_, rejeitar) => setTimeout(() => rejeitar(new Error(mensagemTimeout)), ms))
+    ]);
+}
+
 async function verificarMonitor() {
     try {
-        const todas = await chrome.management.getAll();
+        const todas = await comTimeout(chrome.management.getAll(), 5000, 'Timeout de 5s ao chamar chrome.management.getAll()');
         const monitor = todas.find(ext => ext.name === NOME_EXTENSAO_MONITOR);
         const status = {
             encontrada: !!monitor,
