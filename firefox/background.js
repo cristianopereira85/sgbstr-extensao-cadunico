@@ -37,15 +37,30 @@ function agendarVerificacao() {
 
 chrome.alarms.onAlarm.addListener((alarme) => {
     if (alarme.name === NOME_ALARME) {
-        verificarAtualizacao();
-        rodarCicloMonitorEHeartbeat();
+        rodarCiclo();
     }
 });
 
 // Roda uma vez já na inicialização do service worker, sem esperar o
 // primeiro alarme (cobre o caso de o worker acordar por outro motivo).
-verificarAtualizacao();
-rodarCicloMonitorEHeartbeat();
+rodarCiclo();
+
+// verificarAtualizacao() e rodarCicloMonitorEHeartbeat() rodavam em paralelo
+// antes (16/09/2026: achado bug) — se o manifest.json em disco tivesse
+// acabado de mudar nesse ciclo, verificarAtualizacao() chamava
+// chrome.runtime.reload() enquanto rodarCicloMonitorEHeartbeat() ainda
+// estava no meio da checagem do Monitor, derrubando o service worker antes
+// de qualquer catch conseguir rodar — resultado: heartbeat com
+// monitor_encontrado E monitor_erro nulos ao mesmo tempo, um estado que a
+// lógica de erro não deveria permitir. Corrigido rodando em SEQUÊNCIA: se
+// for recarregar, para ali mesmo (não faz sentido continuar, o reload já
+// vai reiniciar tudo); só roda a checagem do Monitor/heartbeat quando o
+// ciclo não vai recarregar.
+async function rodarCiclo() {
+    const vaiRecarregar = await verificarAtualizacao();
+    if (vaiRecarregar) return;
+    await rodarCicloMonitorEHeartbeat();
+}
 
 // Checa o Monitor UMA vez por ciclo (chrome.management.getAll()) e reaproveita
 // o resultado tanto pro aviso na tela quanto pro heartbeat — em vez de checar
@@ -63,6 +78,8 @@ async function rodarCicloMonitorEHeartbeat() {
     await enviarHeartbeat(statusMonitor);
 }
 
+// Devolve true quando vai recarregar (pra rodarCiclo() saber que não deve
+// continuar pro resto do ciclo — ver comentário em rodarCiclo()).
 async function verificarAtualizacao() {
     try {
         const resposta = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
@@ -72,9 +89,12 @@ async function verificarAtualizacao() {
         if (manifestEmDisco.version !== versaoCarregada) {
             console.log(`LAB: nova versão da extensão em disco (${manifestEmDisco.version}, carregada: ${versaoCarregada}) — recarregando sozinho.`);
             chrome.runtime.reload();
+            return true;
         }
+        return false;
     } catch (erro) {
         console.error('LAB: falha ao verificar atualização da extensão', erro);
+        return false;
     }
 }
 
