@@ -103,6 +103,28 @@ function Invoke-OcultarIconeDwAgent {
         Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
     }
 
+    # Plano B (achado ao vivo 18/09/2026, CRAS Turu): em algumas maquinas nao
+    # existe NENHUMA entrada de inicializacao do DWAgent nas chaves acima -
+    # e mesmo assim o icone reaparece sozinho em poucos segundos. Confirmado
+    # que o processo pai do dwagent.exe reaparecido era o proprio dwagsvc.exe
+    # (o servico) - ou seja, e o servico quem religa o icone direto na sessao,
+    # nao um mecanismo do Windows. Nesse caso, matar 1x so nao basta; insistir
+    # algumas vezes com espera faz o servico parar de religar (visto
+    # funcionar ao vivo - motivo exato de por que ele desiste nao totalmente
+    # confirmado, mas reproduzido). Nas maquinas onde 1x ja basta, isso so
+    # acrescenta ~5s de espera.
+    for ($tentativa = 1; $tentativa -le 5; $tentativa++) {
+        Start-Sleep -Seconds 5
+        $reapareceu = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+            $_.Path -match '(?i)dwag' -and $_.ProcessName -notmatch '(?i)^dwagsvc$'
+        }
+        if (-not $reapareceu) { break }
+        Write-Output "Icone reapareceu sozinho (tentativa $tentativa de 5) - o servico do DWAgent religou. Encerrando de novo..."
+        foreach ($p in $reapareceu) {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     $servico = Get-Service -Name "DWAgent" -ErrorAction SilentlyContinue
     if ($servico) {
         Write-Output "Servico DWAgent: $($servico.Status) (precisa continuar Running)."
