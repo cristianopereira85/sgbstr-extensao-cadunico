@@ -18,12 +18,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 # =================================================================
-# Ocultar icone do DWAgent (DWService) - 17/09/2026
+# Ocultar icone do DWAgent (DWService) - 17/09/2026 (Plano B/D em 18/09/2026)
 # =================================================================
 # So mexe na entrada de inicializacao do "Monitor" (o programa que mostra
-# o icone/menu na bandeja) - o SERVICO do Windows (DWAgent, o que faz o
-# acesso remoto funcionar de verdade) nunca e tocado. Testado ao vivo em
-# 17/09/2026 (ver notas.md na pasta "DWService CRAS" do laboratorio).
+# o icone/menu na bandeja) e, no Plano D (ver abaixo), na configuracao
+# proprio do DWAgent (config.json) - o SERVICO do Windows (dwagsvc.exe, o
+# que faz o acesso remoto funcionar de verdade) NUNCA e reiniciado/parado
+# em nenhum dos planos. Testado ao vivo em 17/09/2026 e 18/09/2026 (ver
+# notas.md na pasta "DWService CRAS" do laboratorio).
 function Test-Administrador {
     $identidade = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identidade)
@@ -122,6 +124,96 @@ function Invoke-OcultarIconeDwAgent {
         Write-Output "Icone reapareceu sozinho (tentativa $tentativa de 5) - o servico do DWAgent religou. Encerrando de novo..."
         foreach ($p in $reapareceu) {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Plano D (achado ao vivo 18/09/2026, mesma maquina do Plano B, so que
+    # pior: mesmo repetindo o Stop-Process a cada 5s, 5 vezes, o icone
+    # reapareceu em TODAS elas - loop continuo, sem nunca desistir sozinho
+    # (confirmado em teste manual mais paciente: 12 tentativas em 2min,
+    # PID novo em todas as 12). Nesse caso a saida real e mexer na
+    # configuracao de verdade do proprio DWAgent: existe uma chave
+    # booleana "monitor_tray_icon" dentro do config.json da instalacao
+    # (achada lendo o codigo-fonte Python do proprio DWAgent, em
+    # C:\Program Files\DWAgent\agent.py - o app e Python empacotado, com
+    # .py legivel, nao compilado/ofuscado) que controla exatamente isso,
+    # default true/visivel quando a chave esta ausente do arquivo.
+    #
+    # CUIDADO - NUNCA reiniciar o servico DWAgent inteiro pra aplicar essa
+    # mudanca (nem Restart-Service, nem net stop/net start). Isso foi
+    # tentado ao vivo em 18/09/2026 (justamente pra aplicar essa mesma
+    # mudanca) e causou uma queda REAL de conexao remota: a maquina ficou
+    # offline no painel do DWService por mais de 1h, com erro
+    # "LIMIT_AGENT" do lado do servidor (aparentemente bloqueio temporario
+    # por excesso de tentativas de reconexao) - reiniciar o servico
+    # interrompe e reestabelece a conexao com o dwservice.net do zero, e
+    # isso e um risco real, nao so cosmetico. So precisa matar o processo
+    # do icone (igual o Plano B ja faz acima) - o proprio servico relanca
+    # um processo novo que ja le a configuracao atualizada, sem precisar
+    # reiniciar nada.
+    #
+    # CUIDADO 2 - escrever o config.json com Set-Content/Out-File comuns
+    # no Windows PowerShell 5.1 grava BOM (marca invisivel no inicio do
+    # arquivo) por padrao, e o parser Python do DWAgent rejeita isso (erro
+    # real visto no log: "Unexpected UTF-8 BOM (decode using utf-8-sig):
+    # line 1 column 1 (char 0)"), travando o agente inteiro (nao so o
+    # icone) ate alguem perceber e corrigir manualmente. Por isso o uso de
+    # [System.IO.File]::WriteAllText com UTF8Encoding($false) abaixo (sem
+    # BOM), e a conferencia de bytes + reparse do JSON antes de seguir -
+    # se qualquer verificacao falhar, restaura o backup automaticamente
+    # em vez de deixar o DWAgent quebrado sem ninguem perceber.
+    $reapareceuFinal = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.Path -match '(?i)dwag' -and $_.ProcessName -notmatch '(?i)^dwagsvc$'
+    }
+    if ($reapareceuFinal) {
+        Write-Output ""
+        Write-Output "O icone continua religando sozinho mesmo apos 5 tentativas -"
+        Write-Output "tentando o Plano D (configuracao real do DWAgent, monitor_tray_icon)..."
+
+        $configPaths = @(
+            "C:\Program Files\DWAgent\config.json",
+            "C:\Program Files (x86)\DWAgent\config.json"
+        ) | Where-Object { Test-Path $_ }
+
+        foreach ($configPath in $configPaths) {
+            try {
+                $backupConfig = "$configPath.bak_labSGBSTR_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+                Copy-Item $configPath $backupConfig -Force
+
+                $jsonObj = Get-Content $configPath -Raw | ConvertFrom-Json
+                $jsonObj | Add-Member -NotePropertyName monitor_tray_icon -NotePropertyValue $false -Force
+                $novoJson = $jsonObj | ConvertTo-Json -Depth 10
+                [System.IO.File]::WriteAllText($configPath, $novoJson, (New-Object System.Text.UTF8Encoding($false)))
+
+                $bytesGravados = [System.IO.File]::ReadAllBytes($configPath)
+                $temBom = ($bytesGravados.Length -ge 3 -and $bytesGravados[0] -eq 0xEF -and $bytesGravados[1] -eq 0xBB -and $bytesGravados[2] -eq 0xBF)
+                $jsonValido = $true
+                try { Get-Content $configPath -Raw | ConvertFrom-Json | Out-Null } catch { $jsonValido = $false }
+
+                if ($temBom -or -not $jsonValido) {
+                    Write-Output "Plano D: gravacao saiu invalida (BOM=$temBom, JSON valido=$jsonValido) - restaurando backup automaticamente, config.json intocado."
+                    Copy-Item $backupConfig $configPath -Force
+                } else {
+                    Write-Output "Plano D: config.json atualizado com monitor_tray_icon=false (validado: sem BOM, JSON valido). Backup em: $backupConfig"
+                    Start-Sleep -Seconds 2
+                    $iconeAtual = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                        $_.Path -match '(?i)dwag' -and $_.ProcessName -notmatch '(?i)^dwagsvc$'
+                    }
+                    foreach ($p in $iconeAtual) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+                    Start-Sleep -Seconds 5
+                    $depoisPlanoD = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                        $_.Path -match '(?i)dwag' -and $_.ProcessName -notmatch '(?i)^dwagsvc$'
+                    }
+                    if ($depoisPlanoD) {
+                        Write-Output "Plano D: mesmo assim o icone reapareceu (PID $($depoisPlanoD.Id -join ',')) - nao foi possivel esconder nesta maquina. Restaurando backup por seguranca."
+                        Copy-Item $backupConfig $configPath -Force
+                    } else {
+                        Write-Output "Plano D: OK - icone nao reapareceu, resolvido sem reiniciar o servico."
+                    }
+                }
+            } catch {
+                Write-Output "Plano D: erro inesperado ($($_.Exception.Message)) - nada alem do backup foi alterado."
+            }
         }
     }
 
