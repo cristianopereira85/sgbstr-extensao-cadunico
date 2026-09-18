@@ -11,10 +11,118 @@
 # Uso: powershell -NoProfile -ExecutionPolicy Bypass -File configurar-auto-atualizacao.ps1
 
 param(
-    [string]$Destino = "$env:LOCALAPPDATA\SGBSTR-Extensao"
+    [string]$Destino = "$env:LOCALAPPDATA\SGBSTR-Extensao",
+    [switch]$SoOcultarIconeDwAgent
 )
 
 $ErrorActionPreference = "Stop"
+
+# =================================================================
+# Ocultar icone do DWAgent (DWService) - 17/09/2026
+# =================================================================
+# So mexe na entrada de inicializacao do "Monitor" (o programa que mostra
+# o icone/menu na bandeja) - o SERVICO do Windows (DWAgent, o que faz o
+# acesso remoto funcionar de verdade) nunca e tocado. Testado ao vivo em
+# 17/09/2026 (ver notas.md na pasta "DWService CRAS" do laboratorio).
+function Test-Administrador {
+    $identidade = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identidade)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+}
+
+function Invoke-OcultarIconeDwAgent {
+    if (-not (Test-Administrador)) {
+        Write-Output "Pedindo permissao de administrador para ocultar o icone do DWAgent..."
+        Write-Output "(vai aparecer uma tela cinza do Windows pedindo confirmacao)"
+        try {
+            $argumentos = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Destino `"$Destino`" -SoOcultarIconeDwAgent"
+            Start-Process powershell -Verb RunAs -ArgumentList $argumentos -Wait -ErrorAction Stop
+        } catch {
+            Write-Output "Permissao de administrador nao foi concedida - o icone NAO foi ocultado."
+            Write-Output "Rode este script de novo mais tarde pra tentar de novo."
+        }
+        return
+    }
+
+    Write-Output ""
+    Write-Output "=================================================================="
+    Write-Output " Ocultando o icone do DWAgent (o servico de acesso remoto continua"
+    Write-Output " rodando normalmente - so o icone/menu na bandeja e removido)"
+    Write-Output "=================================================================="
+
+    $backupPath = Join-Path $Destino "backup_autostart_dwagent.json"
+
+    $runKeys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+    )
+    $locais = @()
+    foreach ($chave in $runKeys) {
+        if (Test-Path $chave) {
+            $props = Get-ItemProperty -Path $chave
+            foreach ($prop in $props.PSObject.Properties) {
+                if ($prop.Name -notmatch '^PS' -and "$($prop.Value)" -match '(?i)dwag|dwservice') {
+                    $locais += [pscustomobject]@{ Tipo = "RegistroRun"; Chave = $chave; Nome = $prop.Name; Valor = "$($prop.Value)" }
+                }
+            }
+        }
+    }
+    $startupFolders = @([Environment]::GetFolderPath("Startup"), [Environment]::GetFolderPath("CommonStartup"))
+    foreach ($pasta in $startupFolders) {
+        if (Test-Path $pasta) {
+            Get-ChildItem -Path $pasta -Filter "*.lnk" -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '(?i)dwag|dwservice' } |
+                ForEach-Object { $locais += [pscustomobject]@{ Tipo = "AtalhoInicializacao"; Chave = $pasta; Nome = $_.Name; Valor = $_.FullName } }
+        }
+    }
+
+    if ($locais.Count -eq 0) {
+        Write-Output "Nenhuma entrada de inicializacao do DWAgent encontrada -- o icone ja"
+        Write-Output "nao deveria aparecer (ou o DWAgent usa um mecanismo diferente nesta"
+        Write-Output "versao/maquina - se ainda aparecer, me avise)."
+    } else {
+        $locais | ConvertTo-Json | Out-File -FilePath $backupPath -Encoding utf8
+        Write-Output "Backup salvo em: $backupPath"
+        foreach ($item in $locais) {
+            if ($item.Tipo -eq "RegistroRun") {
+                Remove-ItemProperty -Path $item.Chave -Name $item.Nome -ErrorAction SilentlyContinue
+                Write-Output "Removido do registro: $($item.Chave)\$($item.Nome)"
+            } else {
+                Remove-Item -Path $item.Valor -Force -ErrorAction SilentlyContinue
+                Write-Output "Atalho removido: $($item.Valor)"
+            }
+        }
+    }
+
+    $processosMonitor = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.Path -match '(?i)dwag' -and $_.ProcessName -notmatch '(?i)^dwagsvc$'
+    }
+    foreach ($p in $processosMonitor) {
+        Write-Output "Encerrando processo do icone: $($p.ProcessName) (PID $($p.Id))"
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    }
+
+    $servico = Get-Service -Name "DWAgent" -ErrorAction SilentlyContinue
+    if ($servico) {
+        Write-Output "Servico DWAgent: $($servico.Status) (precisa continuar Running)."
+        if ($servico.Status -ne "Running") {
+            Write-Warning "O servico NAO esta rodando! Isso NAO deveria acontecer so por remover o icone -- verifique manualmente."
+        }
+    } else {
+        Write-Output "Servico 'DWAgent' nao encontrado nesta maquina ainda (normal se o"
+        Write-Output "DWAgent acabou de ser instalado agora mesmo - pode levar alguns"
+        Write-Output "segundos pra aparecer)."
+    }
+
+    Write-Output ""
+    Write-Output "Pronto. O icone do DWAgent nao deve aparecer mais, nem no proximo login."
+}
+
+if ($SoOcultarIconeDwAgent) {
+    Invoke-OcultarIconeDwAgent
+    exit 0
+}
 
 $scriptAtualizador = Join-Path $Destino "atualizar-extensao.ps1"
 
@@ -50,6 +158,7 @@ if (Test-Path $configPath) {
 
 if ($configAtual -and -not [string]::IsNullOrWhiteSpace($configAtual.cras)) {
     Write-Output "OK: maquina ja identificada antes (CRAS: $($configAtual.cras))."
+    $cras = $configAtual.cras
 } else {
     if ($configAtual -and $configAtual.id_instalacao) {
         $idInstalacao = $configAtual.id_instalacao
@@ -102,6 +211,76 @@ if ($configAtual -and -not [string]::IsNullOrWhiteSpace($configAtual.cras)) {
         Write-Output "OK: maquina identificada como '$cras' (id_instalacao $idInstalacao)."
     } else {
         Write-Output "OK: id_instalacao gravado ($idInstalacao) - a unidade sera perguntada na tela do Cadastro Unico na primeira navegacao."
+    }
+}
+
+# =================================================================
+# Sugestao de nome pra usar tambem no DWAgent (DWService) - 17/09/2026
+# =================================================================
+# So roda se a unidade foi definida (nao roda pra "0 / nao sei agora").
+# Consulta so-leitura no Supabase (mesma chave anon ja embutida nesta
+# extensao) pra sugerir o proximo numero daquele CRAS (ex: "Turu 4") -
+# NAO reserva nada, e so uma sugestao pra usar no nome do cliente do
+# DWAgent na hora de instalar, pra ficar com o MESMO nome nos dois
+# sistemas (extensao e DWService) e facilitar achar a maquina depois.
+# O nome definitivo em maquinas_cras so e gravado de verdade quando a
+# extensao for usada pela primeira vez no Cadastro Unico.
+if ($cras) {
+    $SupabaseUrl = "https://vxinqteushefztszmhdb.supabase.co"
+    $SupabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4aW5xdGV1c2hlZnp0c3ptaGRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMTgzNjUsImV4cCI6MjA3NDU5NDM2NX0.I9lPwicVkLUmd9e_eRfK_gC0zLgbeRoYVIE2PxtoYDs"
+
+    Write-Output ""
+    Write-Output "=================================================================="
+    Write-Output " Nome sugerido para esta maquina (use tambem no DWAgent)"
+    Write-Output "=================================================================="
+    try {
+        $crasCodificado = [uri]::EscapeDataString($cras)
+        $resp = Invoke-RestMethod -Method Get `
+            -Uri "$SupabaseUrl/rest/v1/maquinas_cras?cras=eq.$crasCodificado&select=apelido" `
+            -Headers @{ apikey = $SupabaseKey; Authorization = "Bearer $SupabaseKey" }
+
+        $maiorNumero = 0
+        foreach ($item in $resp) {
+            if ($item.apelido -match '(\d+)\s*$') {
+                $n = [int]$matches[1]
+                if ($n -gt $maiorNumero) { $maiorNumero = $n }
+            }
+        }
+        $numeroSugerido = $maiorNumero + 1
+        $nomeBonito = (Get-Culture).TextInfo.ToTitleCase($cras.ToLower())
+        $apelidoSugerido = "$nomeBonito $numeroSugerido"
+
+        Write-Output " Provavel nome: $apelidoSugerido"
+        Write-Output " (baseado nas maquinas ja registradas para '$cras' ate agora -"
+        Write-Output " e so uma sugestao, o nome definitivo em nosso sistema so fica"
+        Write-Output " confirmado quando a extensao for usada pela 1a vez no Cadastro"
+        Write-Output " Unico - mas de qualquer forma raramente muda, pode usar.)"
+        Write-Output ""
+        Write-Output " Anote e use ESSE MESMO NOME ao configurar o cliente do DWAgent"
+        Write-Output " (DWService) nesta maquina - assim os dois sistemas mostram a"
+        Write-Output " mesma identificacao, e fica facil achar a maquina certa depois."
+    } catch {
+        Write-Output " Nao consegui consultar o Supabase agora ($($_.Exception.Message))."
+        Write-Output " Confira o proximo nome disponivel depois em slz-extensoes.netlify.app"
+        Write-Output " antes de nomear o cliente do DWAgent."
+    }
+
+    # -----------------------------------------------------------------
+    # DWAgent (DWService) - pergunta se ja foi instalado e se quer ocultar
+    # -----------------------------------------------------------------
+    Write-Output ""
+    $jaInstalouDw = Read-Host "Voce ja instalou o DWService (DWAgent) nesta maquina? (S/N)"
+    if ($jaInstalouDw -match '^[Ss]') {
+        $ocultarDw = Read-Host "Deseja ocultar agora o icone do DWAgent na bandeja? (S/N)"
+        if ($ocultarDw -match '^[Ss]') {
+            Invoke-OcultarIconeDwAgent
+        } else {
+            Write-Output "OK, icone mantido visivel por enquanto. Pra ocultar depois, rode"
+            Write-Output "este mesmo script de novo."
+        }
+    } else {
+        Write-Output "OK. Depois de instalar o DWAgent, rode este mesmo script de novo"
+        Write-Output "pra ter a opcao de ocultar o icone."
     }
 }
 
