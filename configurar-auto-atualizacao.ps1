@@ -215,55 +215,92 @@ if ($configAtual -and -not [string]::IsNullOrWhiteSpace($configAtual.cras)) {
 }
 
 # =================================================================
-# Sugestao de nome pra usar tambem no DWAgent (DWService) - 17/09/2026
+# Nome desta maquina pra usar tambem no DWAgent (DWService) - 17/09/2026
 # =================================================================
 # So roda se a unidade foi definida (nao roda pra "0 / nao sei agora").
-# Consulta so-leitura no Supabase (mesma chave anon ja embutida nesta
-# extensao) pra sugerir o proximo numero daquele CRAS (ex: "Turu 4") -
-# NAO reserva nada, e so uma sugestao pra usar no nome do cliente do
-# DWAgent na hora de instalar, pra ficar com o MESMO nome nos dois
-# sistemas (extensao e DWService) e facilitar achar a maquina depois.
-# O nome definitivo em maquinas_cras so e gravado de verdade quando a
-# extensao for usada pela primeira vez no Cadastro Unico.
+# Duas situacoes bem diferentes:
+#   1. Maquina que JA usou a extensao no Cadastro Unico antes (reinstalacao,
+#      ex: Cristiano passando de novo no CRAS pra instalar o DWService) -
+#      ja existe um nome DEFINITIVO gravado (maquinas_cras.apelido).
+#      Busca esse nome de verdade via identificar_maquina_por_instalacao()
+#      (mesma RPC do identificar-maquina.ps1, ja usada em campo).
+#   2. Maquina nova, acabou de escolher o CRAS agora, nunca abriu o
+#      Cadastro Unico - ainda nao tem nome definitivo. Mostra so uma
+#      ESTIMATIVA (MAX numero ja usado naquele CRAS + 1) - nao reserva
+#      nada, o nome de verdade so e gravado quando a extensao for usada
+#      pela 1a vez.
 if ($cras) {
     $SupabaseUrl = "https://vxinqteushefztszmhdb.supabase.co"
     $SupabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4aW5xdGV1c2hlZnp0c3ptaGRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMTgzNjUsImV4cCI6MjA3NDU5NDM2NX0.I9lPwicVkLUmd9e_eRfK_gC0zLgbeRoYVIE2PxtoYDs"
 
+    $idInstalacaoAtual = $null
+    if ($configAtual -and $configAtual.id_instalacao) {
+        $idInstalacaoAtual = $configAtual.id_instalacao
+    } elseif ($idInstalacao) {
+        $idInstalacaoAtual = $idInstalacao
+    }
+
     Write-Output ""
     Write-Output "=================================================================="
-    Write-Output " Nome sugerido para esta maquina (use tambem no DWAgent)"
+    Write-Output " Nome desta maquina (use tambem no DWAgent)"
     Write-Output "=================================================================="
-    try {
-        $crasCodificado = [uri]::EscapeDataString($cras)
-        $resp = Invoke-RestMethod -Method Get `
-            -Uri "$SupabaseUrl/rest/v1/maquinas_cras?cras=eq.$crasCodificado&select=apelido" `
-            -Headers @{ apikey = $SupabaseKey; Authorization = "Bearer $SupabaseKey" }
 
-        $maiorNumero = 0
-        foreach ($item in $resp) {
-            if ($item.apelido -match '(\d+)\s*$') {
-                $n = [int]$matches[1]
-                if ($n -gt $maiorNumero) { $maiorNumero = $n }
+    $apelidoReal = $null
+    if ($idInstalacaoAtual) {
+        try {
+            $bodyIdent = @{ p_id_instalacao = $idInstalacaoAtual } | ConvertTo-Json
+            $respIdent = Invoke-RestMethod -Method Post `
+                -Uri "$SupabaseUrl/rest/v1/rpc/identificar_maquina_por_instalacao" `
+                -Headers @{ apikey = $SupabaseKey; Authorization = "Bearer $SupabaseKey"; "Content-Type" = "application/json" } `
+                -Body $bodyIdent
+
+            $linhaComApelido = $respIdent | Where-Object { $_.apelido } | Select-Object -First 1
+            if ($linhaComApelido) {
+                $apelidoReal = $linhaComApelido.apelido
             }
+        } catch {
+            # segue pro fallback de sugestao abaixo
         }
-        $numeroSugerido = $maiorNumero + 1
-        $nomeBonito = (Get-Culture).TextInfo.ToTitleCase($cras.ToLower())
-        $apelidoSugerido = "$nomeBonito $numeroSugerido"
-
-        Write-Output " Provavel nome: $apelidoSugerido"
-        Write-Output " (baseado nas maquinas ja registradas para '$cras' ate agora -"
-        Write-Output " e so uma sugestao, o nome definitivo em nosso sistema so fica"
-        Write-Output " confirmado quando a extensao for usada pela 1a vez no Cadastro"
-        Write-Output " Unico - mas de qualquer forma raramente muda, pode usar.)"
-        Write-Output ""
-        Write-Output " Anote e use ESSE MESMO NOME ao configurar o cliente do DWAgent"
-        Write-Output " (DWService) nesta maquina - assim os dois sistemas mostram a"
-        Write-Output " mesma identificacao, e fica facil achar a maquina certa depois."
-    } catch {
-        Write-Output " Nao consegui consultar o Supabase agora ($($_.Exception.Message))."
-        Write-Output " Confira o proximo nome disponivel depois em slz-extensoes.netlify.app"
-        Write-Output " antes de nomear o cliente do DWAgent."
     }
+
+    if ($apelidoReal) {
+        Write-Output " Nome JA CONFIRMADO: $apelidoReal"
+        Write-Output " (esta maquina ja usou a extensao no Cadastro Unico antes - use"
+        Write-Output " exatamente esse nome, ja e definitivo.)"
+    } else {
+        try {
+            $crasCodificado = [uri]::EscapeDataString($cras)
+            $resp = Invoke-RestMethod -Method Get `
+                -Uri "$SupabaseUrl/rest/v1/maquinas_cras?cras=eq.$crasCodificado&select=apelido" `
+                -Headers @{ apikey = $SupabaseKey; Authorization = "Bearer $SupabaseKey" }
+
+            $maiorNumero = 0
+            foreach ($item in $resp) {
+                if ($item.apelido -match '(\d+)\s*$') {
+                    $n = [int]$matches[1]
+                    if ($n -gt $maiorNumero) { $maiorNumero = $n }
+                }
+            }
+            $numeroSugerido = $maiorNumero + 1
+            $nomeBonito = (Get-Culture).TextInfo.ToTitleCase($cras.ToLower())
+            $apelidoSugerido = "$nomeBonito $numeroSugerido"
+
+            Write-Output " Nome sugerido (AINDA SEM CONFIRMACAO): $apelidoSugerido"
+            Write-Output " (esta maquina ainda nao usou a extensao no Cadastro Unico, entao"
+            Write-Output " nao temos o nome definitivo ainda - e uma estimativa baseada nas"
+            Write-Output " maquinas ja cadastradas para '$cras'. Abra o Cadastro Unico uma vez"
+            Write-Output " nesta maquina e rode este script de novo pra confirmar o nome real"
+            Write-Output " antes de nomear o DWAgent, se quiser ter certeza.)"
+        } catch {
+            Write-Output " Nao consegui consultar o Supabase agora ($($_.Exception.Message))."
+            Write-Output " Confira o nome certo depois em slz-extensoes.netlify.app antes de"
+            Write-Output " nomear o cliente do DWAgent."
+        }
+    }
+    Write-Output ""
+    Write-Output " Anote e use ESSE NOME ao configurar o cliente do DWAgent (DWService)"
+    Write-Output " nesta maquina - assim os dois sistemas mostram a mesma identificacao,"
+    Write-Output " e fica facil achar a maquina certa depois."
 
     # -----------------------------------------------------------------
     # DWAgent (DWService) - pergunta se ja foi instalado e se quer ocultar
