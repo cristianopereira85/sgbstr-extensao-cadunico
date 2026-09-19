@@ -285,8 +285,19 @@ function mostrarAvisoCras(idMaquina, idInstalacao) {
                 headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
                 body: JSON.stringify({ p_codigo: codigo })
             });
-            const valido = resp.ok ? await resp.json() : false;
             btnValidarCodigo.disabled = false;
+            // (19/09/2026) antes disso, um erro HTTP (ex: falha de rede/CORS
+            // específica do navegador) caía no mesmo "Código inválido" de um
+            // código realmente errado — impossível diferenciar sem DevTools
+            // aberto na hora. Agora loga status+corpo real pro console.
+            if (!resp.ok) {
+                const corpo = await resp.text().catch(() => '(sem corpo)');
+                console.error(`LAB: validar_codigo_maquina_teste falhou -> HTTP ${resp.status} ${corpo}`);
+                statusCodigo.textContent = `Falha ao verificar (HTTP ${resp.status}) — tente de novo.`;
+                statusCodigo.style.color = '#ff6b6b';
+                return;
+            }
+            const valido = await resp.json();
             if (valido) {
                 codigoValidado = codigo;
                 statusCodigo.textContent = 'Código válido ✓';
@@ -302,6 +313,7 @@ function mostrarAvisoCras(idMaquina, idInstalacao) {
             }
         } catch (erro) {
             btnValidarCodigo.disabled = false;
+            console.error('LAB: falha de rede ao validar código de acesso', erro);
             statusCodigo.textContent = 'Sem resposta do servidor — tente de novo.';
             statusCodigo.style.color = '#ff6b6b';
         }
@@ -319,22 +331,40 @@ function mostrarAvisoCras(idMaquina, idInstalacao) {
                 inputNomeLivre.focus();
                 return;
             }
+            // (19/09/2026) trava o botão durante a requisição — sem isso, um
+            // clique duplo dispara 2 chamadas concorrentes pro mesmo
+            // id_maquina (sem id_instalacao não tem advisory lock nenhum
+            // protegendo essa corrida no servidor).
+            btnConfirmar.disabled = true;
             try {
                 const resp = await fetch(`${SUPABASE_URL}/rest/v1/rpc/nomear_maquina_teste`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
                     body: JSON.stringify({ p_id_maquina: idMaquina, p_id_instalacao: idInstalacao, p_codigo: codigoValidado, p_nome: nomeLivre })
                 });
-                const gravou = resp.ok ? await resp.json() : false;
+                // Antes disso, um erro HTTP (rede/CORS/servidor) e um "código
+                // errado" (RPC respondendo false normalmente) caíam na MESMA
+                // mensagem genérica — sem distinção nenhuma no console.
+                if (!resp.ok) {
+                    const corpo = await resp.text().catch(() => '(sem corpo)');
+                    console.error(`LAB: nomear_maquina_teste falhou -> HTTP ${resp.status} ${corpo}`);
+                    erroEl.textContent = `Não deu pra gravar (HTTP ${resp.status}) — tente de novo.`;
+                    btnConfirmar.disabled = false;
+                    return;
+                }
+                const gravou = await resp.json();
                 if (!gravou) {
+                    console.error('LAB: nomear_maquina_teste retornou false (código incorreto ou máquina já nomeada antes)');
                     erroEl.textContent = 'Não deu pra gravar — confira o código e tente de novo.';
+                    btnConfirmar.disabled = false;
                     return;
                 }
                 await chrome.storage.local.set({ crasJaPerguntado: true });
                 console.log(`LAB: máquina de teste nomeada via código de acesso -> ${nomeLivre}`);
             } catch (erro) {
-                console.error('LAB: falha ao nomear máquina de teste', erro);
+                console.error('LAB: falha de rede ao nomear máquina de teste', erro);
                 erroEl.textContent = 'Sem resposta do servidor — tente de novo.';
+                btnConfirmar.disabled = false;
                 return;
             }
             remover();
