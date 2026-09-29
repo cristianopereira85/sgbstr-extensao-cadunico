@@ -9,9 +9,17 @@
 // chrome.runtime.reload() sozinho, sem precisar de clique humano em
 // chrome://extensions.
 //
-// Limitação conhecida (não dá pra evitar): abas do Cadastro Único já
-// abertas continuam com o interceptor.js/sandbox.js antigos até a
-// próxima navegação/F5 real, porque é SPA. Ver "Pegadinhas" no CLAUDE.md.
+// 29/09/2026: a limitação acima ("SPA sem F5 real") deixou de ser só uma
+// observação — virou um bug de perda de dado real, achado numa varredura
+// de produção: várias máquinas com heartbeat vivo há semanas sem
+// NENHUMA captura de família (o script antigo, injetado antes da última
+// atualização, fica "órfão" — desconectado da extensão, chamadas a
+// chrome.* dentro dele passam a falhar caladas). Como é SPA, nunca existe
+// uma navegação real que reinjete o script sozinho. Corrigido recarregando
+// as abas do Cadastro Único já abertas automaticamente logo depois de
+// cada atualização (ver recarregarAbasCadastroUnico(), chamada no
+// onInstalled com reason 'update' mais abaixo) — sem aviso na tela, sem
+// depender de alguém apertar F5.
 //
 // Também manda um HEARTBEAT (id_maquina + versão rodando) a cada alarme,
 // direto pro Supabase — INDEPENDENTE de alguém abrir uma família no
@@ -28,11 +36,42 @@ const INTERVALO_MINUTOS = 2;
 
 console.log(`LAB: background.js carregado, versão ${chrome.runtime.getManifest().version}`);
 
-chrome.runtime.onInstalled.addListener(agendarVerificacao);
+chrome.runtime.onInstalled.addListener((detalhes) => {
+    agendarVerificacao();
+    // reason 'update': a extensão acabou de recarregar com código novo
+    // (chamado por verificarAtualizacao() logo abaixo, ou por uma
+    // atualização real da loja/AMO). É o momento certo pra reinjetar o
+    // interceptor.js/sandbox.js em qualquer aba do Cadastro Único que já
+    // estava aberta — ver comentário no topo do arquivo.
+    if (detalhes.reason === 'update') {
+        recarregarAbasCadastroUnico();
+    }
+});
 chrome.runtime.onStartup.addListener(agendarVerificacao);
 
 function agendarVerificacao() {
     chrome.alarms.create(NOME_ALARME, { periodInMinutes: INTERVALO_MINUTOS });
+}
+
+// Recarrega (F5 programático) qualquer aba do Cadastro Único já aberta,
+// forçando o Chrome/Edge a reinjetar interceptor.js/sandbox.js na versão
+// nova. Silencioso — sem aviso, sem esperar ação do operador. Existe o
+// risco (aceito conscientemente) de interromper uma edição em andamento
+// no meio de um bloco não salvo; a alternativa (deixar a captura morta
+// por dias/semanas sem ninguém perceber, como já aconteceu) foi avaliada
+// como pior.
+async function recarregarAbasCadastroUnico() {
+    try {
+        const abas = await chrome.tabs.query({ url: 'https://cadunico.dataprev.gov.br/*' });
+        for (const aba of abas) {
+            if (aba.id !== undefined) chrome.tabs.reload(aba.id);
+        }
+        if (abas.length > 0) {
+            console.log(`LAB: ${abas.length} aba(s) do Cadastro Único recarregada(s) automaticamente após atualização da extensão.`);
+        }
+    } catch (erro) {
+        console.error('LAB: falha ao recarregar abas do Cadastro Único após atualização', erro);
+    }
 }
 
 chrome.alarms.onAlarm.addListener((alarme) => {
