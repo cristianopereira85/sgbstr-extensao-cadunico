@@ -12,7 +12,8 @@
 
 param(
     [string]$Destino = "$env:LOCALAPPDATA\SGBSTR-Extensao",
-    [switch]$SoOcultarIconeDwAgent
+    [switch]$SoOcultarIconeDwAgent,
+    [switch]$SoBloquearAnonimo
 )
 
 $ErrorActionPreference = "Stop"
@@ -233,6 +234,57 @@ function Invoke-OcultarIconeDwAgent {
     Write-Output "Pronto. O icone do DWAgent nao deve aparecer mais, nem no proximo login."
 }
 
+# =================================================================
+# Bloquear navegacao anonima/InPrivate (02/10/2026)
+# =================================================================
+# Extensao sideload nao roda em anonimo/InPrivate a menos que o usuario
+# marque "Permitir no modo anonimo", e nada no manifest forca isso. O
+# bloqueio real e a politica do navegador, que tambem le do REGISTRO
+# (nao precisa de GPO). Exige administrador (HKLM). Testado ao vivo em
+# 02/10/2026: bloqueou Chrome e Edge sem GPO. Reversivel:
+# desbloquear-anonimo.reg. Falha aqui NUNCA derruba a instalacao.
+function Invoke-BloquearAnonimo {
+    if (-not (Test-Administrador)) {
+        Write-Output ""
+        Write-Output "Pedindo permissao de administrador para bloquear a navegacao anonima..."
+        Write-Output "(vai aparecer a tela do Windows pedindo a senha de administrador)"
+        try {
+            $argumentos = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Destino `"$Destino`" -SoBloquearAnonimo"
+            Start-Process powershell -Verb RunAs -ArgumentList $argumentos -Wait -ErrorAction Stop
+        } catch {
+            Write-Output "Permissao de administrador nao concedida - anonimo NAO foi bloqueado."
+            Write-Output "Rode este script de novo (ou bloquear-anonimo.reg como administrador)."
+        }
+        return
+    }
+    Write-Output ""
+    Write-Output "=================================================================="
+    Write-Output " Bloqueando navegacao anonima/InPrivate (Chrome e Edge)"
+    Write-Output "=================================================================="
+    $politicas = @(
+        @{ Rotulo = "Chrome"; Chave = "HKLM:\SOFTWARE\Policies\Google\Chrome";  Nome = "IncognitoModeAvailability" },
+        @{ Rotulo = "Edge";   Chave = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"; Nome = "InPrivateModeAvailability" }
+    )
+    foreach ($p in $politicas) {
+        try {
+            if (-not (Test-Path $p.Chave)) { New-Item -Path $p.Chave -Force -ErrorAction Stop | Out-Null }
+            New-ItemProperty -Path $p.Chave -Name $p.Nome -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+            $lido = (Get-ItemProperty -Path $p.Chave -Name $p.Nome -ErrorAction Stop).($p.Nome)
+            if ($lido -eq 1) { Write-Output ("OK: {0} - anonimo bloqueado." -f $p.Rotulo) }
+            else { Write-Output ("ATENCAO: {0} - valor nao ficou como esperado." -f $p.Rotulo) }
+        } catch {
+            Write-Output ("NAO bloqueado em {0}: {1}" -f $p.Rotulo, $_.Exception.Message)
+        }
+    }
+    Write-Output "Feche todas as janelas do Chrome/Edge (e finalize chrome.exe/msedge.exe)"
+    Write-Output "ou reinicie o computador pra valer. Confira em chrome://policy."
+}
+
+if ($SoBloquearAnonimo) {
+    Invoke-BloquearAnonimo
+    exit 0
+}
+
 if ($SoOcultarIconeDwAgent) {
     Invoke-OcultarIconeDwAgent
     exit 0
@@ -434,6 +486,9 @@ if ($cras) {
         Write-Output "pra ter a opcao de ocultar o icone."
     }
 }
+
+# Bloqueio de anonimo: nunca derruba a instalacao se falhar
+try { Invoke-BloquearAnonimo } catch { Write-Output "Bloqueio de anonimo falhou: $($_.Exception.Message)" }
 
 $nomeTarefa = "SGBSTR - Atualizar Extensao CadUnico"
 
