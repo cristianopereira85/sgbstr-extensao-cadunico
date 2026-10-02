@@ -487,9 +487,6 @@ if ($cras) {
     }
 }
 
-# Bloqueio de anonimo: nunca derruba a instalacao se falhar
-try { Invoke-BloquearAnonimo } catch { Write-Output "Bloqueio de anonimo falhou: $($_.Exception.Message)" }
-
 $nomeTarefa = "SGBSTR - Atualizar Extensao CadUnico"
 
 try {
@@ -546,3 +543,6 @@ try {
 
     Write-Output "OK: Atalho criado em Inicializar (atualiza 1x por login)."
 }
+
+# Bloqueio de anonimo: ultima coisa a rodar, nunca derruba a instalacao se falhar
+try { Invoke-BloquearAnonimo } catch { Write-Output "Bloqueio de anonimo falhou: $($_.Exception.Message)" }
