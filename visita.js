@@ -16,6 +16,7 @@
     endereco: "tipoLogradouro", referencia: "referencia", utl: "utl",
     telefone: "telefone", integrantes: "compFamiliar", localidade: "localidade",
     processo: "processo42", tsee: "tsee", transferencia: "transferencia",
+    codigoFamiliar: "codFamiliar",
   };
 
   const UTL_MAP = {
@@ -273,6 +274,7 @@
       utl: mapUtl(ic.nomeUnidadeTerritorialLocal || ""),
       telefone: digitsOnly(`${resp.numeroDddContato1Familia || ""}${resp.numeroTelefoneContato1Familia || ""}`),
       integrantes: count <= 1 ? "UNIPESSOAL" : "MULTIPESSOAL",
+      codigoFamiliar: familiaAtual ? String(familiaAtual).padStart(11, "0") : "",
       _count: count,
       _familia: familiaAtual,
       _avisos: [
