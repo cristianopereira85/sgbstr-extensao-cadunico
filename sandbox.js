@@ -46,6 +46,37 @@ const fingerprintNavegador = {
     tela: `${screen.width}x${screen.height}`
 };
 
+// Operador logado, lido direto da página (não depende de ter visto o
+// v1/usuario/info passar pela rede — que só dispara no login, então uma
+// sessão criada por reload da extensão com a aba já logada ficava sem
+// operador). CPF vem do campo `sub` do JWT do sessionStorage; do token só
+// esse campo é extraído, o token em si nunca sai do navegador. Nome vem do
+// cabeçalho da tela ("NOME - SAO LUIS/MA"). Falha aqui nunca derruba captura.
+let nomeOperadorCache = null;
+let cpfOperadorCache = null;
+function lerOperadorDaPagina() {
+    let cpf = null;
+    try {
+        const token = sessionStorage.getItem('token-jwt-gerid');
+        if (token) {
+            const sub = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub;
+            if (/^\d{11}$/.test(String(sub))) cpf = String(sub);
+        }
+    } catch (e) { /* sem token ainda (tela de login) ou formato novo */ }
+    if (cpf !== cpfOperadorCache) {
+        cpfOperadorCache = cpf;
+        nomeOperadorCache = null;
+    }
+    if (cpf && !nomeOperadorCache) {
+        try {
+            const el = document.querySelector('header .header-bottom .text-weight-bold');
+            const m = el && el.textContent.trim().match(/^(.+?)\s+-\s+[A-Z ]+\/[A-Z]{2}$/);
+            if (m) nomeOperadorCache = m[1];
+        } catch (e) { /* cabeçalho ainda não renderizou */ }
+    }
+    return { cpf, nome: nomeOperadorCache };
+}
+
 // config_maquina.json é gravado 1x pelo INSTALADOR (não pelo navegador)
 // dentro da mesma pasta compartilhada de onde Chrome e Edge carregam a
 // extensão descompactada — por isso o id_instalacao de dentro desse
@@ -880,6 +911,7 @@ window.addEventListener('message', async (event) => {
     const endpoint = msg.url.split('/portal-api/')[1] || msg.url;
     const idMaquina = await obterIdMaquina();
     const configMaquina = await obterConfigMaquina();
+    const operadorPagina = lerOperadorDaPagina();
 
     fetch(`${SUPABASE_URL}/rest/v1/dataprev_capturas`, {
         method: 'POST',
@@ -901,7 +933,9 @@ window.addEventListener('message', async (event) => {
             fingerprint_navegador: fingerprintNavegador,
             versao_extensao: chrome.runtime.getManifest().version,
             id_instalacao: configMaquina.idInstalacao,
-            cras_config: configMaquina.cras
+            cras_config: configMaquina.cras,
+            cpf_operador: operadorPagina.cpf,
+            nome_operador_tela: operadorPagina.nome
         })
     }).then((res) => {
         if (res.ok) {
