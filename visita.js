@@ -10,7 +10,12 @@
   if (window.__cuJfInjected) return;
   window.__cuJfInjected = true;
 
-  const FORM_ID = "252954363471058";
+  // Widget do Nilton (nov/2026): recebe o CPF do RF por postMessage {tipo:"visita:dados", v:1, cpf}
+  // e responde com visita:pronto/aberto/fechado/enviada/erro (sem o conteúdo da visita).
+  const FORM_ORIGIN = "https://visita-domiciliar.pages.dev";
+  const FORM_URL = FORM_ORIGIN + "/nova-visita-sem-local";
+  // Teste visual: true liberaria o botao em qualquer tela. Producao: false.
+  const MODO_TESTE_VISUAL = false;
   const FIELD_MAP = {
     nome: "nomeRf", cpf: "cpfRf", bolsaFamilia: "pbf", bpc: "bpc",
     endereco: "tipoLogradouro", referencia: "referencia", utl: "utl",
@@ -138,6 +143,7 @@
   // idTipoCondicaoCadastroFamilia 4 = cadastro ainda em preenchimento (não finalizado).
   const MSG_BLOQUEADO = "Atualize o cadastro hoje para agendar a visita";
   function liberado() {
+    if (MODO_TESTE_VISUAL) return true;
     const f = familiaAtual && familias[familiaAtual] && familias[familiaAtual].fam;
     const p = f && f.principal;
     if (!p) return false;
@@ -313,11 +319,10 @@
       </div>
       <div id="cu-jf-toolbar">
         <button id="cu-jf-capture">Capturar</button>
-        <button id="cu-jf-clear" class="danger">Apagar</button>
         <span id="cu-jf-status">Pronto.</span>
       </div>
       <div id="cu-jf-frame-wrap">
-        <iframe id="cu-jf-frame" src="https://form.jotform.com/${FORM_ID}" allow="geolocation; microphone; camera"></iframe>
+        <iframe id="cu-jf-frame" src="${FORM_URL}" title="Visita domiciliar" referrerpolicy="origin"></iframe>
       </div>
     `;
     document.documentElement.appendChild(avatar);
@@ -337,21 +342,39 @@
     const status = panel.querySelector("#cu-jf-status");
     const frame = panel.querySelector("#cu-jf-frame");
 
-    panel.querySelector("#cu-jf-clear").addEventListener("click", () => {
-      frame.src = `https://form.jotform.com/${FORM_ID}`;
-      status.textContent = "Formulário limpo.";
+    // Protocolo do widget: só aceitamos mensagens vindas do iframe e da origem do Nilton.
+    let widgetPronto = false, cpfPendente = null, dadosPendentes = null;
+    window.__visitaMsgs = [];
+    const enviarCpf = (cpf) => frame.contentWindow.postMessage({ tipo: "visita:dados", v: 1, cpf }, FORM_ORIGIN);
+    // Demais campos: o widget só entende o CPF, então quem preenche é o visita-widget.js (dentro do iframe).
+    const enviarDados = (dados) => frame.contentWindow.postMessage({ tipo: "slz:preencher", v: 1, dados }, FORM_ORIGIN);
+    window.addEventListener("message", (ev) => {
+      if (ev.origin !== FORM_ORIGIN || ev.source !== frame.contentWindow) return;
+      const d = ev.data || {};
+      window.__visitaMsgs.push(d); // depuração: __visitaMsgs no console da página
+      console.log("[Visita] widget →", d);
+      if (d.tipo === "visita:pronto") {
+        widgetPronto = true;
+        if (cpfPendente) { enviarCpf(cpfPendente); cpfPendente = null; }
+        if (dadosPendentes) { enviarDados(dadosPendentes); dadosPendentes = null; }
+      } else if (d.tipo === "visita:aberto") status.textContent = "Formulário aberto na família.";
+      else if (d.tipo === "visita:enviada") status.textContent = d.fila ? "Visita guardada na fila (sem internet)." : "Visita enviada.";
+      else if (d.tipo === "visita:fechado") status.textContent = "Formulário fechado.";
+      else if (d.tipo === "visita:erro") status.textContent = "Widget recusou o CPF (inválido).";
     });
     panel.querySelector("#cu-jf-capture").addEventListener("click", () => {
       try {
         const data = montar();
-        const params = new URLSearchParams();
-        // UTL é escolhida pelo entrevistador que agenda: continua sendo calculada em montar(), mas não vai pro formulário
-        Object.keys(FIELD_MAP).filter((k) => k !== "utl").forEach((k) => params.set(FIELD_MAP[k], data[k] || ""));
-        const hash = data.cpf ? `#slzcpf=${data.cpf}` : "";
-        frame.src = `https://form.jotform.com/${FORM_ID}?${params.toString()}${hash}`;
-        status.textContent = data._avisos.length
-          ? "Enviado, mas confira: " + data._avisos.join("; ")
-          : "Dados enviados ao formulário. Revise e envie.";
+        const cpf = String(data.cpf || "").replace(/\D/g, "");
+        if (cpf.length !== 11) { status.textContent = "CPF do responsável não localizado nesta tela."; return; }
+        // Envia já (o widget ignora se ainda não escuta) e guarda p/ reenviar se ele avisar "pronto" depois.
+        enviarCpf(cpf);
+        const dados = {};
+        Object.keys(FIELD_MAP).filter((k) => k !== "utl").forEach((k) => { dados[k] = data[k] || ""; });
+        enviarDados(dados);
+        cpfPendente = widgetPronto ? null : cpf;
+        dadosPendentes = widgetPronto ? null : dados;
+        status.textContent = data._avisos.length ? "Dados enviados, mas confira: " + data._avisos.join("; ") : "Dados enviados ao widget. Revise e envie.";
       } catch (e) {
         status.textContent = "Não foi possível capturar: " + (e && e.message ? e.message : e);
         console.error("[Visita] erro ao capturar", e);
@@ -368,8 +391,7 @@
       panel.classList.remove("open");
       panel.querySelector("#cu-jf-status").textContent = "Pronto.";
       const frame = panel.querySelector("#cu-jf-frame");
-      const base = `https://form.jotform.com/${FORM_ID}`;
-      if (frame.src !== base) frame.src = base;
+      if (frame.src !== FORM_URL) frame.src = FORM_URL;
     }
     atualizarEstado();
   }
@@ -380,7 +402,7 @@
     if (h === ultimoHash) return;
     ultimoHash = h;
     const avatar = document.getElementById("cu-jf-avatar");
-    const naFamilia = /#\/familia\//.test(h);
+    const naFamilia = MODO_TESTE_VISUAL || /#\/familia\//.test(h);
     if (avatar) avatar.style.display = naFamilia ? "" : "none";
     if (!/#\/familia\/visualizar/.test(h)) limparConsulta();
     else atualizarEstado();

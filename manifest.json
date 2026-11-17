@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CadúnicoSLZ",
-  "version": "0.6.18",
+  "version": "0.7.0",
   "description": "Registra o histórico completo do atendimento no Cadastro Único, preservando a jornada e as respostas do sistema.",
   "permissions": ["storage", "tabs", "alarms", "management", "notifications"],
   "host_permissions": [
@@ -39,6 +39,12 @@
     {
       "matches": ["https://www.jotform.com/form-widgets/cpf-validator/*"],
       "js": ["cpf-widget.js"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://visita-domiciliar.pages.dev/*"],
+      "js": ["visita-widget.js"],
       "all_frames": true,
       "run_at": "document_idle"
     }
