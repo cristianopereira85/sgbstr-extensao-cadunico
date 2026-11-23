@@ -78,6 +78,7 @@
             numeroDaUrl(url, /\/familias\/buscar-atualizar-integracao\/(\d+)/);
     if (n && json.principal) {
       dado(n).fam = json;
+      if (familiaAtual !== n) municipioLido = null; // outra família: o município lido antes não vale mais
       familiaAtual = n;
       atualizarEstado();
       return;
@@ -142,14 +143,25 @@
   // Avatar só fica disponível quando a "DATA DE ATUALIZAÇÃO" da tela (principal.dataAlteracao) é hoje.
   // idTipoCondicaoCadastroFamilia 4 = cadastro ainda em preenchimento (não finalizado).
   const MSG_BLOQUEADO = "Atualize o cadastro hoje para agendar a visita";
+  const MSG_FORA = "Agendar visita só vale para famílias de São Luís/MA";
+  // Município/UF vem do campo "Município/UF" da tela da família (#mostrarMunicipioUF). Se o campo não está na tela atual
+  // (ex.: assistente de atualização), vale o último lido para esta família; sem leitura nenhuma, não bloqueia.
+  let municipioLido = null;
+  function foraDeSaoLuis() {
+    const el = document.getElementById("mostrarMunicipioUF");
+    if (el && el.textContent.trim()) municipioLido = normalize(el.textContent).replace(/\s+/g, " ");
+    return !!municipioLido && municipioLido !== "SAO LUIS/MA";
+  }
   function liberado() {
     if (MODO_TESTE_VISUAL) return true;
     const f = familiaAtual && familias[familiaAtual] && familias[familiaAtual].fam;
     const p = f && f.principal;
     if (!p) return false;
     if (String(p.idTipoCondicaoCadastroFamilia) === "4") return false;
+    if (foraDeSaoLuis()) return false;
     return ehHoje(p.dataAlteracao);
   }
+  function msgBloqueio() { return foraDeSaoLuis() ? MSG_FORA : MSG_BLOQUEADO; }
   function atualizarEstado() {
     const avatar = document.getElementById("cu-jf-avatar");
     const chip = document.getElementById("cu-jf-chip");
@@ -157,7 +169,7 @@
     if (!avatar) return;
     const ok = liberado();
     avatar.classList.toggle("cu-jf-off", !ok);
-    avatar.title = ok ? "Agendar visita" : MSG_BLOQUEADO;
+    avatar.title = ok ? "Agendar visita" : msgBloqueio();
     if (chip) chip.textContent = ok ? "Liberado" : "Bloqueado";
     if (!ok && panel) panel.classList.remove("open");
   }
@@ -298,6 +310,7 @@
   window.__visitaMontar = montar; // depuração: no console, __visitaMontar()
 
   // ----- UI -----
+function barraBotoes(){var g=document.getElementById('cu-bar');if(!g){g=document.createElement('div');g.id='cu-bar';window.__cuBar=g;document.documentElement.appendChild(g);}return g;}
   function montarUI() {
     if (document.getElementById("cu-jf-avatar")) return;
     // Botão "11E": bloco vertical com etiqueta de estado, ícone de calendário e texto
@@ -307,7 +320,7 @@
     avatar.innerHTML =
       '<span id="cu-jf-chip">Bloqueado</span>' +
       '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>' +
-      '<span class="cu-jf-txt">Agendar<br>visita</span>';
+      '<span class="cu-jf-txt">Agendar visita</span>';
 
     const panel = document.createElement("div");
     panel.id = "cu-jf-panel";
@@ -325,11 +338,11 @@
         <iframe id="cu-jf-frame" src="${FORM_URL}" title="Visita domiciliar" referrerpolicy="origin"></iframe>
       </div>
     `;
-    document.documentElement.appendChild(avatar);
+    barraBotoes().appendChild(avatar);
     document.documentElement.appendChild(panel);
 
     const abrir = () => {
-      if (!liberado()) { atualizarEstado(); return; }
+      if (!liberado()) { atualizarEstado(); if (window.__cuAviso) window.__cuAviso(msgBloqueio(), true); return; }
       panel.classList.toggle("open");
     };
     atualizarEstado();
@@ -385,6 +398,7 @@
   // Ao voltar para a tela de pesquisa: fecha a janelinha, apaga os dados e volta a ficar desativado até a próxima consulta.
   function limparConsulta() {
     familiaAtual = null;
+    municipioLido = null;
     Object.keys(familias).forEach((k) => delete familias[k]);
     const panel = document.getElementById("cu-jf-panel");
     if (panel) {
@@ -404,12 +418,51 @@
     const avatar = document.getElementById("cu-jf-avatar");
     const naFamilia = MODO_TESTE_VISUAL || /#\/familia\//.test(h);
     if (avatar) avatar.style.display = naFamilia ? "" : "none";
-    if (!/#\/familia\/visualizar/.test(h)) limparConsulta();
+    // Só apaga ao sair de #/familia/ (o assistente de atualização, #/familia/atualizar, abre o formulário de campo e precisa dos dados).
+    if (!/#\/familia\//.test(h)) limparConsulta();
     else atualizarEstado();
   }
   window.addEventListener("hashchange", aplicarRota);
   window.addEventListener("popstate", aplicarRota);
   setInterval(aplicarRota, 400);
+
+  // Apresentacao (L/E/C) e tamanho (P/M/G) dos botoes: clique direito abre um mini menu; a escolha fica salva neste navegador.
+  (function preferenciasBotoes() {
+    var ARR = { L: "Quadrados lado a lado", E: "Quadrados empilhados", C: "Pílulas empilhadas" };
+    var TAM = { P: "Pequeno", M: "Médio", G: "Grande" };
+    var GRUPOS = [{ titulo: "Apresentação", chave: "cu-arranjo-botoes", attr: "data-cu-arr", ops: ARR, pad: "L" },
+                  { titulo: "Tamanho", chave: "cu-tamanho-botoes", attr: "data-cu-tam", ops: TAM, pad: "G" }];
+    function ler(g) { try { var v = localStorage.getItem(g.chave); return g.ops[v] ? v : g.pad; } catch (e) { return g.pad; } }
+    function aplicar(g, v) { document.documentElement.setAttribute(g.attr, v); }
+    function fechar() { var m = document.getElementById("cu-menu"); if (m) m.remove(); }
+    function desenhar(m) {
+      m.textContent = "";
+      GRUPOS.forEach(function (g) {
+        var tit = document.createElement("div"); tit.className = "cu-m-tit"; tit.textContent = g.titulo; m.appendChild(tit);
+        var atual = ler(g);
+        Object.keys(g.ops).forEach(function (k) {
+          var b = document.createElement("button"); b.type = "button";
+          var i = document.createElement("i"); i.textContent = k === atual ? "✓" : ""; b.appendChild(i);
+          b.appendChild(document.createTextNode(g.ops[k]));
+          b.addEventListener("click", function () { try { localStorage.setItem(g.chave, k); } catch (er) {} aplicar(g, k); desenhar(m); });
+          m.appendChild(b);
+        });
+      });
+    }
+    GRUPOS.forEach(function (g) { aplicar(g, ler(g)); });
+    document.addEventListener("contextmenu", function (e) {
+      if (!e.target.closest || !e.target.closest("#cu-bar")) return;
+      e.preventDefault(); fechar();
+      var m = document.createElement("div"); m.id = "cu-menu"; desenhar(m);
+      document.documentElement.appendChild(m);
+      m.style.left = Math.max(8, Math.min(e.clientX, innerWidth - m.offsetWidth - 8)) + "px";
+      m.style.top = Math.max(8, e.clientY - m.offsetHeight - 6) + "px";
+    }, true);
+    document.addEventListener("click", function (e) { if (!e.target.closest || !e.target.closest("#cu-menu")) fechar(); }, true);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") fechar(); });
+    window.addEventListener("blur", fechar);
+  })();
+
 
   if (document.body) montarUI();
   else document.addEventListener("DOMContentLoaded", montarUI);

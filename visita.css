@@ -2,18 +2,17 @@
   position: fixed;
   right: 20px;
   bottom: 20px;
-  width: 96px;
-  padding: 12px 8px;
-  border-radius: 14px;
+  padding: 7px 14px 7px 10px;
+  border-radius: 999px;
   background: #16a34a;
   box-shadow: 0 6px 20px rgba(0,0,0,0.25);
   cursor: pointer;
   z-index: 2147483646;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: 8px;
   color: white;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   font-weight: 600;
@@ -23,19 +22,20 @@
   border: 0;
   transition: transform .15s ease;
 }
+#cu-jf-avatar { white-space: nowrap; }
 #cu-jf-avatar:hover { transform: scale(1.05); }
-#cu-jf-avatar svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-#cu-jf-chip { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; background: rgba(255,255,255,.22); border-radius: 10px; padding: 2px 8px; }
+#cu-jf-avatar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#cu-jf-chip { display: none; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; background: rgba(255,255,255,.22); border-radius: 10px; padding: 2px 8px; }
 #cu-jf-avatar.cu-jf-off { background: #9ca3af; cursor: not-allowed; box-shadow: none; opacity: .85; }
 #cu-jf-avatar.cu-jf-off:hover { transform: none; }
 
 #cu-jf-panel {
   position: fixed;
   right: 20px;
-  bottom: 150px;
+  bottom: 112px;
   width: 440px;
   height: 640px;
-  max-height: calc(100vh - 170px);
+  max-height: calc(100vh - 132px);
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 16px 48px rgba(0,0,0,0.28);
@@ -103,3 +103,57 @@
 #cu-jf-frame { width: 100%; height: 100%; border: 0; }
 #cu-jf-toolbar button.danger { background: #fee2e2; color: #991b1b; }
 #cu-jf-toolbar button.danger:hover { background: #fecaca; }
+
+/* Botão "Formulário de campo" (ao lado do "Agendar visita") */
+#cu-fc-btn {
+  position: fixed; right: 20px; bottom: 66px; padding: 7px 14px 7px 10px;
+  border-radius: 999px; background: #1d4ed8; color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.25);
+  cursor: pointer; z-index: 2147483646; display: flex; flex-direction: row; align-items: center;
+  justify-content: flex-start; gap: 8px; font: 700 12px/1.2 system-ui, sans-serif; white-space: nowrap;
+}
+#cu-fc-btn:hover { transform: scale(1.05); }
+#cu-fc-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#cu-fc-btn.cu-fc-off { background: #9ca3af; cursor: not-allowed; box-shadow: none; opacity: .85; }
+#cu-fc-btn.cu-fc-off:hover { transform: none; }
+#cu-bar > #cu-fc-btn.cu-fc-off::after { background: #e5e7eb; }
+#cu-fc-chip { display: none; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; background: rgba(255,255,255,.22); border-radius: 10px; padding: 2px 8px; }
+#cu-fc-aviso {
+  display: none; position: fixed; right: 20px; bottom: 112px; max-width: 320px; padding: 10px 14px;
+  border-radius: 10px; background: #14532d; color: #fff; font: 600 13px/1.35 system-ui, sans-serif;
+  box-shadow: 0 6px 20px rgba(0,0,0,.3); z-index: 2147483647;
+}
+#cu-fc-aviso.cu-fc-erro { background: #991b1b; }
+
+/* ===== Botoes: 3 apresentacoes (html[data-cu-arr] L/E/C) x 3 tamanhos (html[data-cu-tam] P/M/G), escolhidos pelo usuario no clique direito (23/11/2026). Padrao: L + G. Para voltar as pilulas antigas, apague este bloco e use document.documentElement em vez de #cu-bar nos 2 JS. ===== */
+html[data-cu-tam="P"] { --cu-w: 62px; --cu-h: 54px; --cu-fs: 9px; --cu-ic: 17px; --cu-ph: 30px; --cu-pfs: 11px; --cu-pp: 7px; --cu-pic: 16px; }
+html[data-cu-tam="M"] { --cu-w: 76px; --cu-h: 64px; --cu-fs: 10.5px; --cu-ic: 20px; --cu-ph: 34px; --cu-pfs: 12.5px; --cu-pp: 8px; --cu-pic: 18px; }
+html[data-cu-arr="E"] { --cu-bh: calc(var(--cu-h, 76px) * 2 + 8px); }
+html[data-cu-arr="C"] { --cu-bh: calc(var(--cu-ph, 40px) * 2 + 6px); }
+#cu-bar { position: fixed; right: 20px; bottom: 20px; z-index: 2147483646; display: flex; gap: 8px; }
+html[data-cu-arr="E"] #cu-bar, html[data-cu-arr="C"] #cu-bar { flex-direction: column; align-items: flex-end; }
+html[data-cu-arr="C"] #cu-bar { gap: 6px; }
+#cu-bar > #cu-jf-avatar, #cu-bar > #cu-fc-btn {
+  position: relative; right: auto; bottom: auto; width: var(--cu-w, 92px); height: var(--cu-h, 76px); padding: 0 4px; border-radius: 10px; flex-direction: column; justify-content: center; align-items: center;
+  gap: 3px; font-size: var(--cu-fs, 12px); line-height: 1.1; letter-spacing: 0; white-space: normal; text-align: center; overflow: hidden;
+}
+#cu-bar > #cu-fc-btn { order: 1; }
+#cu-bar > #cu-jf-avatar { order: 2; }
+#cu-bar > #cu-jf-avatar svg, #cu-bar > #cu-fc-btn svg { width: var(--cu-ic, 24px); height: var(--cu-ic, 24px); }
+#cu-bar > #cu-jf-avatar::after, #cu-bar > #cu-fc-btn::after { content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: #bbf7d0; }
+#cu-bar > #cu-fc-btn::after { background: #bfdbfe; }
+#cu-bar > #cu-jf-avatar.cu-jf-off::after { background: #e5e7eb; }
+/* apresentacao C: pilulas de uma linha */
+html[data-cu-arr="C"] #cu-bar > #cu-jf-avatar, html[data-cu-arr="C"] #cu-bar > #cu-fc-btn {
+  width: auto; height: var(--cu-ph, 40px); padding: 0 calc(var(--cu-pp, 10px) * 1.8) 0 calc(var(--cu-pp, 10px) * 1.4); border-radius: 999px; flex-direction: row; gap: 8px;
+  font-size: var(--cu-pfs, 14px); white-space: nowrap;
+}
+html[data-cu-arr="C"] #cu-bar > #cu-jf-avatar svg, html[data-cu-arr="C"] #cu-bar > #cu-fc-btn svg { width: var(--cu-pic, 20px); height: var(--cu-pic, 20px); }
+html[data-cu-arr="C"] #cu-bar > #cu-jf-avatar::after, html[data-cu-arr="C"] #cu-bar > #cu-fc-btn::after { display: none; }
+#cu-jf-panel { bottom: calc(var(--cu-bh, var(--cu-h, 76px)) + 34px); max-height: calc(100vh - var(--cu-bh, var(--cu-h, 76px)) - 54px); }
+#cu-fc-aviso { right: 20px; bottom: calc(var(--cu-bh, var(--cu-h, 76px)) + 34px); }
+#cu-menu { position: fixed; z-index: 2147483647; min-width: 190px; padding: 4px; background: #fff; border: 1px solid #d1d5db; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.28); font: 600 13px/1.2 system-ui, sans-serif; color: #111827; }
+#cu-menu .cu-m-tit { padding: 8px 10px 4px; font: 700 10px/1 ui-monospace, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; color: #6b7280; }
+#cu-menu .cu-m-tit:not(:first-child) { margin-top: 4px; border-top: 1px solid #e5e7eb; padding-top: 10px; }
+#cu-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: 0; background: none; border-radius: 6px; cursor: pointer; font: inherit; color: inherit; text-align: left; }
+#cu-menu button:hover, #cu-menu button:focus-visible { background: #eef2ff; outline: none; }
+#cu-menu button i { width: 14px; font-style: normal; color: #1d4ed8; }

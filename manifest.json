@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CadúnicoSLZ",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Registra o histórico completo do atendimento no Cadastro Único, preservando a jornada e as respostas do sistema.",
   "permissions": ["storage", "tabs", "alarms", "management", "notifications"],
   "host_permissions": [
@@ -26,7 +26,7 @@
     },
     {
       "matches": ["https://cadunico.dataprev.gov.br/*"],
-      "js": ["visita.js"],
+      "js": ["visita.js", "visita-campo.js"],
       "css": ["visita.css"],
       "run_at": "document_start"
     },
